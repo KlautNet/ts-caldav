@@ -546,18 +546,11 @@ export class CalDAVClient {
            </c:comp-filter>`
         : `<c:comp-filter name="${component}"/>`;
 
-    const calendarData =
-      start && end && !all && component === "VEVENT"
-        ? `<c:calendar-data><c:expand start="${formatDate(
-            start
-          )}" end="${formatDate(end)}"/></c:calendar-data>`
-        : `<c:calendar-data/>`;
-
     const requestBody = `
       <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
         <d:prop>
           <d:getetag/>
-          ${calendarData}
+          <c:calendar-data/>
         </d:prop>
         <c:filter>
           <c:comp-filter name="VCALENDAR">
