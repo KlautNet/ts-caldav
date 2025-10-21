@@ -49,7 +49,7 @@ describe("CalDAVClient Credential Validation", () => {
           password: "invalid",
         },
       })
-    ).rejects.toThrow("Invalid credentials");
+    ).rejects.toThrow("Request failed with status code 401");
   });
 });
 
