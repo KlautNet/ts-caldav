@@ -71,6 +71,7 @@ const events = await client.getEvents(calendars[0].url);
 | **iCloud**    | `https://caldav.icloud.com/` |
 | **Yahoo**     | `https://caldav.calendar.yahoo.com` |
 | **GMX**       | `https://caldav.gmx.net` |
+| **Fastmail**  | `https://caldav.fastmail.com` |
 
 > 💡 **Note:** Some servers may require enabling CalDAV support or generating app-specific passwords (especially iCloud and Fastmail).
 

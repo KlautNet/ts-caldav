@@ -26,7 +26,7 @@ describe("CalDAVClient Cache Operations", () => {
   });
 
   test("Create client from cache", async () => {
-    const client = await CalDAVClient.createFromCache(
+    const client = CalDAVClient.createFromCache(
       {
         baseUrl: process.env.CALDAV_BASE_URL!,
         auth: {

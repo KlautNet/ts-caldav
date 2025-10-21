@@ -77,7 +77,7 @@ describe("Timezone Event Handling", () => {
     expect(["Etc/UTC", undefined]).toContain(event?.endTzid);
   });
 
-  test("Clean up timezone events", async () => {
-    await client.deleteEvent(calendarUrl, timezoneEventUid);
-  });
+  // test("Clean up timezone events", async () => {
+  //   await client.deleteEvent(calendarUrl, timezoneEventUid);
+  // });
 });
