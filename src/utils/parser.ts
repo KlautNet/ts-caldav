@@ -103,6 +103,7 @@ export const parseCalendars = async (
       url: baseUrl ? new URL(res.href, baseUrl).toString() : res.href,
       ctag: prop?.getctag,
       supportedComponents,
+      color: prop?.["calendar-color"],
     });
   }
 
@@ -198,6 +199,8 @@ export const parseEvents = async (
           }
         }
 
+        const status = vevent.getFirstPropertyValue("status")?.toString();
+
         events.push({
           uid: icalEvent.uid,
           summary: icalEvent.summary || "Untitled Event",
@@ -205,6 +208,7 @@ export const parseEvents = async (
           end: adjustedEnd,
           description: icalEvent.description || undefined,
           location: icalEvent.location || undefined,
+          status: status || undefined,
           etag: eventData["getetag"] || "",
           href: baseUrl
             ? new URL(obj["href"], baseUrl).toString()

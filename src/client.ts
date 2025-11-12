@@ -214,12 +214,13 @@ export class CalDAVClient {
     if (!this.calendarHome) throw new Error("Calendar home not found.");
 
     const requestBody = `
-      <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:c="urn:ietf:params:xml:ns:caldav">
+      <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:apple="http://apple.com/ns/ical/">
         <d:prop>
           <d:resourcetype/>
           <d:displayname/>
           <cs:getctag/>
           <c:supported-calendar-component-set/>
+          <apple:calendar-color/>
         </d:prop>
       </d:propfind>`;
 

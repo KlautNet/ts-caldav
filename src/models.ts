@@ -63,6 +63,7 @@ export interface Calendar {
   url: string;
   ctag?: string;
   supportedComponents: SupportedComponent[];
+  color?: string;
 }
 
 export interface Event {
@@ -72,6 +73,7 @@ export interface Event {
   end: Date;
   description?: string;
   location?: string;
+  status?: string;
   etag: string;
   href: string;
   wholeDay?: boolean;
