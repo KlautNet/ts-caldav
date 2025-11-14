@@ -22,6 +22,7 @@ export type RecurrenceRule = {
   interval?: number;
   count?: number;
   until?: Date;
+  wkst?: string;
   byday?: string[];
   bymonthday?: number[];
   bymonth?: number[];

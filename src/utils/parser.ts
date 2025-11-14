@@ -36,12 +36,14 @@ function parseRecurrence(recur: ICAL.Recur): RecurrenceRule {
   const bymonth = recur.parts.BYMONTH
     ? recur.parts.BYMONTH.map((month: number) => month)
     : undefined;
+  const wkst = recur.wkst ? recur.wkst.toString() : undefined;
 
   return {
     freq,
     interval: recur.interval,
     count: recur.count ? recur.count : undefined,
     until: recur.until ? recur.until.toJSDate() : undefined,
+    wkst,
     byday,
     bymonthday,
     bymonth,
