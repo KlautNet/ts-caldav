@@ -3,9 +3,13 @@ import {
   Alarm,
   Calendar,
   Event,
+  EVENT_STATUSES,
+  EventStatus,
   RecurrenceRule,
   SupportedComponent,
   Todo,
+  TODO_STATUSES,
+  TodoStatus,
 } from "../models";
 import ICAL from "ical.js";
 
@@ -201,7 +205,10 @@ export const parseEvents = async (
           }
         }
 
-        const status = vevent.getFirstPropertyValue("status")?.toString();
+        const rawStatus = vevent.getFirstPropertyValue("status")?.toString();
+        const status = EVENT_STATUSES.includes(rawStatus as EventStatus)
+          ? (rawStatus as EventStatus)
+          : undefined;
 
         events.push({
           uid: icalEvent.uid,
@@ -266,9 +273,13 @@ export const parseTodos = async (
         const location = vtodo.getFirstPropertyValue("location") as
           | string
           | undefined;
-        const status = vtodo.getFirstPropertyValue("status") as
+
+        const rawStatus = vtodo.getFirstPropertyValue("status") as
           | string
           | undefined;
+        const status = TODO_STATUSES.includes(rawStatus as TodoStatus)
+          ? (rawStatus as TodoStatus)
+          : undefined;
 
         const sortOrderRaw = vtodo.getFirstPropertyValue(
           "x-apple-sort-order"
