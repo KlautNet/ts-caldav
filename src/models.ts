@@ -22,6 +22,7 @@ export type RecurrenceRule = {
   interval?: number;
   count?: number;
   until?: Date;
+  wkst?: string;
   byday?: string[];
   bymonthday?: number[];
   bymonth?: number[];
@@ -63,7 +64,12 @@ export interface Calendar {
   url: string;
   ctag?: string;
   supportedComponents: SupportedComponent[];
+  color?: string;
 }
+
+export const EVENT_STATUSES = ["TENTATIVE", "CONFIRMED", "CANCELLED"] as const;
+
+export type EventStatus = (typeof EVENT_STATUSES)[number];
 
 export interface Event {
   uid: string;
@@ -72,6 +78,7 @@ export interface Event {
   end: Date;
   description?: string;
   location?: string;
+  status?: EventStatus;
   etag: string;
   href: string;
   wholeDay?: boolean;
@@ -96,13 +103,22 @@ export interface SyncTodosResult {
   deletedTodos: string[];
 }
 
+export const TODO_STATUSES = [
+  "NEEDS-ACTION",
+  "COMPLETED",
+  "IN-PROCESS",
+  "CANCELLED",
+] as const;
+
+export type TodoStatus = (typeof TODO_STATUSES)[number];
+
 export interface Todo {
   uid: string;
   summary: string;
   start?: Date;
   due?: Date;
   completed?: Date;
-  status?: string;
+  status?: TodoStatus;
   description?: string;
   location?: string;
   etag: string;

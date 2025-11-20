@@ -4,5 +4,6 @@ export type {
   Calendar,
   Event,
   Todo,
+  Alarm,
   RecurrenceRule,
 } from "./models";

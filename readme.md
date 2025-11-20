@@ -26,7 +26,8 @@
 ## Features
 
 - Credential validation with CalDAV servers
-- Fetch calendar homes and individual calendars
+- Automatic CalDAV endpoint discovery
+- Fetch calendar homes and individual calendars (with color support)
 - List, create (including recurring), and delete events
 - Detect event changes using `getctag` and `etag`
 - Efficient sync with diff-based event updates
@@ -136,6 +137,7 @@ await client.createEvent(calendar.url, {
   end: new Date("2025-07-01T10:00:00"),
   startTzid: "Europe/Berlin",
   endTzid: "Europe/Berlin",
+  status: "CONFIRMED",
   alarms: [
     { action: "DISPLAY", trigger: "-PT30M", description: "Popup reminder" },
     { action: "AUDIO", trigger: "-PT15M" },

@@ -3,9 +3,13 @@ import {
   Alarm,
   Calendar,
   Event,
+  EVENT_STATUSES,
+  EventStatus,
   RecurrenceRule,
   SupportedComponent,
   Todo,
+  TODO_STATUSES,
+  TodoStatus,
 } from "../models";
 import ICAL from "ical.js";
 
@@ -36,12 +40,14 @@ function parseRecurrence(recur: ICAL.Recur): RecurrenceRule {
   const bymonth = recur.parts.BYMONTH
     ? recur.parts.BYMONTH.map((month: number) => month)
     : undefined;
+  const wkst = recur.wkst ? recur.wkst.toString() : undefined;
 
   return {
     freq,
     interval: recur.interval,
     count: recur.count ? recur.count : undefined,
     until: recur.until ? recur.until.toJSDate() : undefined,
+    wkst,
     byday,
     bymonthday,
     bymonth,
@@ -103,6 +109,7 @@ export const parseCalendars = async (
       url: baseUrl ? new URL(res.href, baseUrl).toString() : res.href,
       ctag: prop?.getctag,
       supportedComponents,
+      color: prop?.["calendar-color"],
     });
   }
 
@@ -198,6 +205,11 @@ export const parseEvents = async (
           }
         }
 
+        const rawStatus = vevent.getFirstPropertyValue("status")?.toString();
+        const status = EVENT_STATUSES.includes(rawStatus as EventStatus)
+          ? (rawStatus as EventStatus)
+          : undefined;
+
         events.push({
           uid: icalEvent.uid,
           summary: icalEvent.summary || "Untitled Event",
@@ -205,6 +217,7 @@ export const parseEvents = async (
           end: adjustedEnd,
           description: icalEvent.description || undefined,
           location: icalEvent.location || undefined,
+          status: status || undefined,
           etag: eventData["getetag"] || "",
           href: baseUrl
             ? new URL(obj["href"], baseUrl).toString()
@@ -260,9 +273,13 @@ export const parseTodos = async (
         const location = vtodo.getFirstPropertyValue("location") as
           | string
           | undefined;
-        const status = vtodo.getFirstPropertyValue("status") as
+
+        const rawStatus = vtodo.getFirstPropertyValue("status") as
           | string
           | undefined;
+        const status = TODO_STATUSES.includes(rawStatus as TodoStatus)
+          ? (rawStatus as TodoStatus)
+          : undefined;
 
         const sortOrderRaw = vtodo.getFirstPropertyValue(
           "x-apple-sort-order"
