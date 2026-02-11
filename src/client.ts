@@ -44,7 +44,7 @@ export class CalDAVClient {
         Authorization:
           options.auth.type === "basic"
             ? `Basic ${encode(
-                `${options.auth.username}:${options.auth.password}`
+                `${options.auth.username}:${options.auth.password}`,
               )}`
             : `Bearer ${options.auth.accessToken}`,
         "Content-Type": XML_CT,
@@ -63,7 +63,7 @@ export class CalDAVClient {
         const base = this.baseUrl.replace(/\/+$/, "");
         const path = (request.url || "").replace(/^\/+/, "");
         console.log(
-          `Request: ${request.method?.toUpperCase()} ${base}/${path}`
+          `Request: ${request.method?.toUpperCase()} ${base}/${path}`,
         );
         return request;
       });
@@ -100,7 +100,7 @@ export class CalDAVClient {
    */
   static createFromCache(
     options: CalDAVOptions,
-    cache: CalDAVClientCache
+    cache: CalDAVClientCache,
   ): CalDAVClient {
     const client = new CalDAVClient(options);
     client.userPrincipal = client.resolveUrl(cache.userPrincipal);
@@ -133,10 +133,19 @@ export class CalDAVClient {
   private async tryDiscoveryRoots(): Promise<string> {
     try {
       const wk = this.absolutize("/.well-known/caldav");
-      return await this.followRedirectOnce(wk);
+      const redirected = await this.followRedirectOnce(wk);
+
+      const res = await this.httpClient.request({
+        method: "OPTIONS",
+        url: redirected,
+        validateStatus: (s) => s < 400,
+      });
+
+      if (res.status < 400) return redirected;
     } catch {
-      /* fall through */
+      /* fall through to candidates if .well-known 404s or fails */
     }
+
     const candidates = [
       "/",
       "/dav",
@@ -144,6 +153,7 @@ export class CalDAVClient {
       "/caldav.php",
       "/remote.php/dav",
     ];
+
     for (const p of candidates) {
       try {
         const abs = this.absolutize(p);
@@ -152,14 +162,18 @@ export class CalDAVClient {
           url: abs,
           validateStatus: () => true,
         });
+
         const allow = String(res.headers["allow"] || "").toUpperCase();
         const dav = String(res.headers["dav"] || "").toLowerCase();
+
         const looksDav = allow.includes("PROPFIND") || dav.includes("1");
-        if (res.status < 500 && looksDav) return abs;
+
+        if (res.status < 400 && looksDav) return abs;
       } catch {
         /* try next */
       }
     }
+
     return this.baseUrl;
   }
 
@@ -175,7 +189,7 @@ export class CalDAVClient {
     const principalHref = this.getHrefFromProp(cup, "current-user-principal");
     if (!principalHref) {
       throw new Error(
-        "User principal not found: credentials rejected or server misconfigured."
+        "User principal not found: credentials rejected or server misconfigured.",
       );
     }
     const principalUrl = this.absolutize(this.resolveUrl(principalHref));
@@ -197,11 +211,11 @@ export class CalDAVClient {
       await this.propfind(
         homeUrl,
         "0",
-        `<d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>`
+        `<d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>`,
       );
     } catch (e) {
       throw new Error(
-        `Authenticated but failed to access calendar home at ${homeUrl}: ${e}`
+        `Authenticated but failed to access calendar home at ${homeUrl}: ${e}`,
       );
     }
   }
@@ -251,13 +265,13 @@ export class CalDAVClient {
    */
   public async getEvents(
     calendarUrl: string,
-    options?: { start?: Date; end?: Date; all?: boolean }
+    options?: { start?: Date; end?: Date; all?: boolean },
   ): Promise<Event[]> {
     return this.getComponents<Event>(
       calendarUrl,
       "VEVENT",
       parseEvents,
-      options
+      options,
     );
   }
 
@@ -269,13 +283,13 @@ export class CalDAVClient {
    */
   public async createEvent(
     calendarUrl: string,
-    eventData: PartialBy<Event, "uid" | "href" | "etag">
+    eventData: PartialBy<Event, "uid" | "href" | "etag">,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     return this.createItem<Event>(
       calendarUrl,
       eventData,
       this.buildICSData.bind(this),
-      "event"
+      "event",
     );
   }
 
@@ -287,20 +301,20 @@ export class CalDAVClient {
    */
   public async updateEvent(
     calendarUrl: string,
-    event: Event
+    event: Event,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     return this.updateItem<Event>(
       calendarUrl,
       event,
       this.buildICSData.bind(this),
-      "event"
+      "event",
     );
   }
 
   public async deleteEvent(
     calendarUrl: string,
     eventUid: string,
-    etag?: string
+    etag?: string,
   ): Promise<void> {
     return this.deleteItem(calendarUrl, eventUid, "event", etag);
   }
@@ -317,7 +331,7 @@ export class CalDAVClient {
    */
   public async getTodos(
     calendarUrl: string,
-    options?: { start?: Date; end?: Date; all?: boolean }
+    options?: { start?: Date; end?: Date; all?: boolean },
   ): Promise<Todo[]> {
     return this.getComponents<Todo>(calendarUrl, "VTODO", parseTodos, {
       all: true,
@@ -333,13 +347,13 @@ export class CalDAVClient {
    */
   public async createTodo(
     calendarUrl: string,
-    todoData: PartialBy<Todo, "uid" | "href" | "etag">
+    todoData: PartialBy<Todo, "uid" | "href" | "etag">,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     return this.createItem<Todo>(
       calendarUrl,
       todoData,
       this.buildTodoICSData.bind(this),
-      "todo"
+      "todo",
     );
   }
 
@@ -351,13 +365,13 @@ export class CalDAVClient {
    */
   public async updateTodo(
     calendarUrl: string,
-    todo: Todo
+    todo: Todo,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     return this.updateItem<Todo>(
       calendarUrl,
       todo,
       this.buildTodoICSData.bind(this),
-      "todo"
+      "todo",
     );
   }
 
@@ -370,7 +384,7 @@ export class CalDAVClient {
   public async deleteTodo(
     calendarUrl: string,
     todoUid: string,
-    etag?: string
+    etag?: string,
   ): Promise<void> {
     return this.deleteItem(calendarUrl, todoUid, "todo", etag);
   }
@@ -390,7 +404,7 @@ export class CalDAVClient {
       const data = await this.propfind(
         href,
         "0",
-        `<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>`
+        `<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>`,
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parsed: any = data;
@@ -429,7 +443,7 @@ export class CalDAVClient {
 
   private diffRefs(
     remoteRefs: { href: string; etag: string }[],
-    localRefs: { href: string; etag: string }[]
+    localRefs: { href: string; etag: string }[],
   ): { newItems: string[]; updatedItems: string[]; deletedItems: string[] } {
     const localMap = new Map(localRefs.map((i) => [i.href, i.etag]));
     const remoteMap = new Map(remoteRefs.map((i) => [i.href, i.etag]));
@@ -458,7 +472,7 @@ export class CalDAVClient {
   public async syncChanges(
     calendarUrl: string,
     ctag: string,
-    localEvents: EventRef[]
+    localEvents: EventRef[],
   ): Promise<SyncChangesResult> {
     const remoteCtag = await this.getCtag(calendarUrl);
     if (ctag === remoteCtag) {
@@ -474,7 +488,7 @@ export class CalDAVClient {
     const remoteRefs = await this.getItemRefs(calendarUrl, "VEVENT");
     const { newItems, updatedItems, deletedItems } = this.diffRefs(
       remoteRefs,
-      localEvents
+      localEvents,
     );
 
     return {
@@ -496,7 +510,7 @@ export class CalDAVClient {
   public async syncTodoChanges(
     calendarUrl: string,
     ctag: string,
-    localTodos: TodoRef[]
+    localTodos: TodoRef[],
   ): Promise<SyncTodosResult> {
     const remoteCtag = await this.getCtag(calendarUrl);
     if (ctag === remoteCtag) {
@@ -512,7 +526,7 @@ export class CalDAVClient {
     const remoteRefs = await this.getItemRefs(calendarUrl, "VTODO");
     const { newItems, updatedItems, deletedItems } = this.diffRefs(
       remoteRefs,
-      localTodos
+      localTodos,
     );
 
     return {
@@ -532,7 +546,7 @@ export class CalDAVClient {
     calendarUrl: string,
     component: "VEVENT" | "VTODO",
     parseFn: (xml: string) => Promise<T[]>,
-    options?: { start?: Date; end?: Date; all?: boolean }
+    options?: { start?: Date; end?: Date; all?: boolean },
   ): Promise<T[]> {
     const now = new Date();
     const defaultEnd = new Date(now.getTime() + 3 * 7 * 24 * 60 * 60 * 1000);
@@ -542,8 +556,8 @@ export class CalDAVClient {
       start && end && !all
         ? `<c:comp-filter name="${component}">
              <c:time-range start="${formatDate(start)}" end="${formatDate(
-            end
-          )}"/>
+               end,
+             )}"/>
            </c:comp-filter>`
         : `<c:comp-filter name="${component}"/>`;
 
@@ -565,14 +579,14 @@ export class CalDAVClient {
       return await parseFn(xml);
     } catch (error) {
       throw new Error(
-        `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server. ${error}`
+        `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server. ${error}`,
       );
     }
   }
 
   private buildICSData(
     event: PartialBy<Event, "uid" | "etag" | "href">,
-    uid: string
+    uid: string,
   ): string {
     const vcalendar = new ICAL.Component(["vcalendar", [], []]);
     vcalendar.addPropertyWithValue("version", "2.0");
@@ -583,7 +597,7 @@ export class CalDAVClient {
     e.uid = uid;
     vevent.addPropertyWithValue(
       "dtstamp",
-      ICAL.Time.fromJSDate(new Date(), true)
+      ICAL.Time.fromJSDate(new Date(), true),
     );
 
     if (event.wholeDay) {
@@ -597,7 +611,7 @@ export class CalDAVClient {
 
       e.startDate = ICAL.Time.fromDateString(startDateStr);
       e.endDate = ICAL.Time.fromDateString(
-        endExclusive.toISOString().split("T")[0]
+        endExclusive.toISOString().split("T")[0],
       );
     } else {
       const start = ICAL.Time.fromJSDate(event.start, true);
@@ -630,7 +644,7 @@ export class CalDAVClient {
       if (r.count) rruleProps.COUNT = r.count;
       if (event.wholeDay && r.until) {
         rruleProps.UNTIL = ICAL.Time.fromDateString(
-          r.until.toISOString().split("T")[0]
+          r.until.toISOString().split("T")[0],
         ).toString();
       } else if (r.until) {
         rruleProps.UNTIL = ICAL.Time.fromJSDate(r.until, true).toString();
@@ -669,7 +683,7 @@ export class CalDAVClient {
 
   private buildTodoICSData(
     todo: PartialBy<Todo, "uid" | "etag" | "href">,
-    uid: string
+    uid: string,
   ): string {
     const vcalendar = new ICAL.Component(["vcalendar", [], []]);
     vcalendar.addPropertyWithValue("version", "2.0");
@@ -679,20 +693,20 @@ export class CalDAVClient {
     vtodo.addPropertyWithValue("uid", uid);
     vtodo.addPropertyWithValue(
       "dtstamp",
-      ICAL.Time.fromJSDate(new Date(), true)
+      ICAL.Time.fromJSDate(new Date(), true),
     );
 
     if (todo.start)
       vtodo.addPropertyWithValue(
         "dtstart",
-        ICAL.Time.fromJSDate(todo.start, true)
+        ICAL.Time.fromJSDate(todo.start, true),
       );
     if (todo.due)
       vtodo.addPropertyWithValue("due", ICAL.Time.fromJSDate(todo.due, true));
     if (todo.completed)
       vtodo.addPropertyWithValue(
         "completed",
-        ICAL.Time.fromJSDate(todo.completed, true)
+        ICAL.Time.fromJSDate(todo.completed, true),
       );
     vtodo.addPropertyWithValue("summary", todo.summary);
     if (todo.description)
@@ -727,15 +741,15 @@ export class CalDAVClient {
   }
 
   private async createItem<
-    T extends { uid?: string; href?: string; etag?: string }
+    T extends { uid?: string; href?: string; etag?: string },
   >(
     calendarUrl: string,
     data: PartialBy<T, "uid" | "href" | "etag">,
     buildFn: (
       data: PartialBy<T, "uid" | "href" | "etag">,
-      uid: string
+      uid: string,
     ) => string,
-    itemType: "event" | "todo"
+    itemType: "event" | "todo",
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     if (!calendarUrl)
       throw new Error(`Calendar URL is required to create a ${itemType}.`);
@@ -750,7 +764,7 @@ export class CalDAVClient {
         href,
         ics,
         { "If-None-Match": "*" },
-        (s) => s === 201 || s === 204
+        (s) => s === 201 || s === 204,
       );
       const etag = response.headers["etag"] || "";
       const newCtag = await this.getCtag(base);
@@ -760,7 +774,7 @@ export class CalDAVClient {
         throw new Error(
           `${
             itemType[0].toUpperCase() + itemType.slice(1)
-          } with the specified uid already exists.`
+          } with the specified uid already exists.`,
         );
       }
       throw new Error(`Failed to create ${itemType}: ${error}`);
@@ -768,16 +782,16 @@ export class CalDAVClient {
   }
 
   private async updateItem<
-    T extends { uid: string; href: string; etag?: string }
+    T extends { uid: string; href: string; etag?: string },
   >(
     calendarUrl: string,
     item: T,
     buildFn: (item: T, uid: string) => string,
-    itemType: "event" | "todo"
+    itemType: "event" | "todo",
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     if (!item.uid || !item.href) {
       throw new Error(
-        `Both 'uid' and 'href' are required to update a ${itemType}.`
+        `Both 'uid' and 'href' are required to update a ${itemType}.`,
       );
     }
 
@@ -800,7 +814,7 @@ export class CalDAVClient {
         throw new Error(
           `${
             itemType[0].toUpperCase() + itemType.slice(1)
-          } with the specified uid does not match.`
+          } with the specified uid does not match.`,
         );
       }
       throw new Error(`Failed to update ${itemType}: ${error}`);
@@ -811,14 +825,14 @@ export class CalDAVClient {
     calendarUrl: string,
     uid: string,
     itemType: "event" | "todo",
-    etag?: string
+    etag?: string,
   ): Promise<void> {
     const base = normalizeSlashEnd(calendarUrl);
     const href = `${base}/${uid}.ics`;
     try {
       await this.httpClient.delete(href, {
         headers: { "If-Match": etag ?? "*" },
-        validateStatus: (s) => s === 204,
+        validateStatus: (s) => s === 204 || s === 200,
       });
     } catch (error) {
       throw new Error(`Failed to delete ${itemType}: ${error}`);
@@ -827,7 +841,7 @@ export class CalDAVClient {
 
   private async getItemRefs(
     calendarUrl: string,
-    component: "VEVENT" | "VTODO"
+    component: "VEVENT" | "VTODO",
   ): Promise<{ href: string; etag: string }[]> {
     const requestBody = `
       <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -857,14 +871,14 @@ export class CalDAVClient {
 
   public async getEventsByHref(
     calendarUrl: string,
-    hrefs: string[]
+    hrefs: string[],
   ): Promise<Event[]> {
     return this.getItemsByHref<Event>(calendarUrl, hrefs, parseEvents);
   }
 
   public async getTodosByHref(
     calendarUrl: string,
-    hrefs: string[]
+    hrefs: string[],
   ): Promise<Todo[]> {
     return this.getItemsByHref<Todo>(calendarUrl, hrefs, parseTodos);
   }
@@ -872,7 +886,7 @@ export class CalDAVClient {
   private async getItemsByHref<T>(
     calendarUrl: string,
     hrefs: string[],
-    parseFn: (xml: string) => Promise<T[]>
+    parseFn: (xml: string) => Promise<T[]>,
   ): Promise<T[]> {
     if (!hrefs.length) return [];
 
@@ -897,20 +911,20 @@ export class CalDAVClient {
    */
 
   private absolutize(urlOrPath: string): string {
-    try {
-      return new URL(urlOrPath).toString();
-    } catch {
-      return new URL(urlOrPath, this.baseUrl).toString();
-    }
+    return new URL(urlOrPath, this.baseUrl).toString();
   }
 
   private resolveUrl(path: string): string {
-    const basePath = new URL(this.baseUrl).pathname;
-    if (path.startsWith(basePath) && basePath !== "/") {
-      const stripped = path.substring(basePath.length);
-      return stripped.startsWith("/") ? stripped : "/" + stripped;
+    try {
+      if (path.startsWith("http")) {
+        return path;
+      }
+      const resolved = new URL(path, this.baseUrl);
+
+      return resolved.pathname + resolved.search;
+    } catch {
+      return path;
     }
-    return path;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -949,7 +963,7 @@ export class CalDAVClient {
     url: string,
     depth: "0" | "1",
     body: string,
-    extra?: AxiosRequestConfig
+    extra?: AxiosRequestConfig,
   ): Promise<unknown> {
     const res = await this.httpClient.request({
       method: "PROPFIND",
@@ -970,7 +984,7 @@ export class CalDAVClient {
     url: string,
     body: string,
     depth: "0" | "1" = "1",
-    extra?: AxiosRequestConfig
+    extra?: AxiosRequestConfig,
   ): Promise<string> {
     const res = await this.httpClient.request({
       method: "REPORT",
@@ -987,7 +1001,7 @@ export class CalDAVClient {
     href: string,
     ics: string,
     headers?: Record<string, string>,
-    validate?: (status: number) => boolean
+    validate?: (status: number) => boolean,
   ) {
     return this.httpClient.put(href, ics, {
       headers: { "Content-Type": ICS_CT, ...(headers || {}) },

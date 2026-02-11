@@ -25,13 +25,12 @@
     "axios": "^1.12.0",
     "base-64": "^1.0.0",
     "dotenv": "^16.4.7",
-    "fast-xml-parser": "^4.5.1",
+    "fast-xml-parser": ">=5.3.4",
     "ical.js": "^2.1.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
-    "@types/axios-mock-adapter": "^1.9.0",
     "@types/base-64": "^1.0.2",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.2",

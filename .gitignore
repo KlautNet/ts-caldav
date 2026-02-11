@@ -38,3 +38,6 @@ tsconfig.tsbuildinfo
 .idea
 .fleet
 .vscode
+
+radicale.conf
+radicale_data
