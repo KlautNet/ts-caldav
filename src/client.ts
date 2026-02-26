@@ -48,6 +48,7 @@ export class CalDAVClient {
               )}`
             : `Bearer ${options.auth.accessToken}`,
         "Content-Type": XML_CT,
+        ...options.headers,
       },
       timeout: options.requestTimeout || 5000,
     });
