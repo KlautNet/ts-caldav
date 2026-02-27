@@ -1,6 +1,6 @@
 {
   "name": "ts-caldav",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "A CalDAV client written in TypeScript",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
