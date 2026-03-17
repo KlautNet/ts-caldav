@@ -89,6 +89,7 @@ export interface Event {
   startTzid?: string;
   endTzid?: string;
   alarms?: Alarm[];
+  customFields?: Record<string, string | string[]>;
 }
 
 export type TodoRef = EventRef;
@@ -128,6 +129,7 @@ export interface Todo {
   href: string;
   alarms?: Alarm[];
   sortOrder?: number;
+  customFields?: Record<string, string | string[]>;
 }
 
 export interface CalDAVClientCache {

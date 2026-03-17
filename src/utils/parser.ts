@@ -14,7 +14,7 @@ import {
 import ICAL from "ical.js";
 
 const normalizeParam = (
-  value: string | string[] | undefined
+  value: string | string[] | undefined,
 ): string | undefined => {
   if (Array.isArray(value)) {
     return value[0];
@@ -22,7 +22,29 @@ const normalizeParam = (
   return value;
 };
 
-function parseRecurrence(recur: ICAL.Recur): RecurrenceRule {
+const generateCustomFields = (
+  component: ICAL.Component,
+  knownProps: Set<string>,
+): Record<string, string | string[]> => {
+  const customFields: Record<string, string | string[]> = {};
+  for (const prop of component.getAllProperties()) {
+    const name = prop.name;
+    if (knownProps.has(name)) continue;
+    const value = prop.getFirstValue()?.toString();
+    if (value == null) continue;
+    const existing = customFields[name];
+    if (existing === undefined) {
+      customFields[name] = value;
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      customFields[name] = [existing, value];
+    }
+  }
+  return customFields;
+};
+
+const parseRecurrence = (recur: ICAL.Recur): RecurrenceRule => {
   const freqMap = {
     DAILY: "DAILY",
     WEEKLY: "WEEKLY",
@@ -52,14 +74,14 @@ function parseRecurrence(recur: ICAL.Recur): RecurrenceRule {
     bymonthday,
     bymonth,
   };
-}
+};
 
 const toArray = <T>(value: T | T[] | undefined): T[] =>
   Array.isArray(value) ? value : value ? [value] : [];
 
 export const parseCalendars = async (
   responseData: string,
-  baseUrl?: string
+  baseUrl?: string,
 ): Promise<Calendar[]> => {
   const calendars: Calendar[] = [];
 
@@ -78,7 +100,7 @@ export const parseCalendars = async (
     const okPropstat = propstats.find(
       (p) =>
         typeof p?.status === "string" &&
-        p.status.toLowerCase().includes("200 ok")
+        p.status.toLowerCase().includes("200 ok"),
     );
     if (!okPropstat) continue;
 
@@ -95,7 +117,7 @@ export const parseCalendars = async (
           "VFREEBUSY",
           "VTIMEZONE",
           "VAVAILABILITY",
-        ].includes(name)
+        ].includes(name),
       );
 
     if (
@@ -116,9 +138,20 @@ export const parseCalendars = async (
   return calendars;
 };
 
+const KNOWN_EVENT_PROPERTIES = new Set([
+  "uid",
+  "summary",
+  "description",
+  "location",
+  "status",
+  "dtstart",
+  "dtend",
+  "rrule",
+]);
+
 export const parseEvents = async (
   responseData: string,
-  baseUrl?: string
+  baseUrl?: string,
 ): Promise<Event[]> => {
   const events: Event[] = [];
   const parser = new XMLParser({ removeNSPrefix: true });
@@ -210,6 +243,11 @@ export const parseEvents = async (
           ? (rawStatus as EventStatus)
           : undefined;
 
+        const customFields = generateCustomFields(
+          vevent,
+          KNOWN_EVENT_PROPERTIES,
+        );
+
         events.push({
           uid: icalEvent.uid,
           summary: icalEvent.summary || "Untitled Event",
@@ -227,6 +265,7 @@ export const parseEvents = async (
           startTzid,
           endTzid,
           alarms,
+          ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
         });
       }
     } catch (error) {
@@ -237,9 +276,21 @@ export const parseEvents = async (
   return events;
 };
 
+const KNOWN_TODO_PROPERTIES = new Set([
+  "uid",
+  "summary",
+  "description",
+  "location",
+  "status",
+  "x-apple-sort-order",
+  "dtstart",
+  "due",
+  "completed",
+]);
+
 export const parseTodos = async (
   responseData: string,
-  baseUrl?: string
+  baseUrl?: string,
 ): Promise<Todo[]> => {
   const todos: Todo[] = [];
   const parser = new XMLParser({ removeNSPrefix: true });
@@ -282,7 +333,7 @@ export const parseTodos = async (
           : undefined;
 
         const sortOrderRaw = vtodo.getFirstPropertyValue(
-          "x-apple-sort-order"
+          "x-apple-sort-order",
         ) as string | number | null | undefined;
         const sortOrder =
           sortOrderRaw !== undefined && sortOrderRaw !== null
@@ -341,6 +392,8 @@ export const parseTodos = async (
           }
         }
 
+        const customFields = generateCustomFields(vtodo, KNOWN_TODO_PROPERTIES);
+
         todos.push({
           uid,
           summary,
@@ -356,6 +409,7 @@ export const parseTodos = async (
             : obj["href"],
           alarms,
           sortOrder,
+          ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
         });
       }
     } catch (error) {
