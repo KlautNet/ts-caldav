@@ -23,7 +23,9 @@ beforeAll(async () => {
   });
 
   const calendars = await client.getCalendars();
-  calendarUrl = calendars[0].url;
+  calendarUrl =
+    calendars.find((cal) => cal.supportedComponents.includes("VEVENT"))?.url ||
+    calendars[0].url;
 });
 
 describe("CalDAVClient Credential Validation", () => {
