@@ -36,4 +36,5 @@ jobs:
                    tests/alarms.test.ts \
                    tests/description-encoding.test.ts \
                    tests/cache.test.ts \
-                   tests/todos.test.ts
+                   tests/todos.test.ts \
+                   tests/custom-fields.test.ts
