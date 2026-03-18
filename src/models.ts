@@ -125,7 +125,7 @@ export interface Todo {
   status?: TodoStatus;
   description?: string;
   location?: string;
-  etag: string;
+  etag?: string;
   href: string;
   alarms?: Alarm[];
   sortOrder?: number;

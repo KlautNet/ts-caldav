@@ -801,7 +801,7 @@ export class CalDAVClient {
 
     const ifMatch = this.cleanEtag(item.etag);
     const extraHeaders: Record<string, string> = {};
-    if (ifMatch && !this.isWeak(ifMatch)) {
+    if (ifMatch && !this.isWeak(item.etag)) {
       extraHeaders["If-Match"] = ifMatch;
     }
 
