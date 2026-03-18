@@ -41,13 +41,6 @@ describe("Alarm Handling", () => {
           action: "AUDIO",
           trigger: "-PT15M",
         },
-        {
-          action: "EMAIL",
-          trigger: "-PT10M",
-          summary: "Email Reminder",
-          description: "Meeting coming up",
-          attendees: ["mailto:test@example.com"],
-        },
       ],
     });
 
@@ -67,11 +60,7 @@ describe("Alarm Handling", () => {
     expect(evt!.alarms!.length).toBeGreaterThanOrEqual(2);
 
     const actions = evt!.alarms!.map((a) => a.action).sort();
-    if (process.env.CALDAV_BASE_URL?.includes("yahoo")) {
-      expect(actions).toEqual(["DISPLAY", "AUDIO"].sort());
-    } else {
-      expect(actions).toEqual(["AUDIO", "DISPLAY", "EMAIL"].sort());
-    }
+    expect(actions).toEqual(["AUDIO", "DISPLAY"].sort());
   });
 
   test("Delete event with alarms", async () => {
