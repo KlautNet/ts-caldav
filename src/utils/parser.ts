@@ -269,7 +269,7 @@ export const parseEvents = async (
         });
       }
     } catch (error) {
-      console.error("Error parsing event data:", error);
+      throw error;
     }
   }
 
@@ -413,7 +413,7 @@ export const parseTodos = async (
         });
       }
     } catch (error) {
-      console.error("Error parsing todo data:", error);
+      throw error;
     }
   }
 

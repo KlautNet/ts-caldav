@@ -5,7 +5,7 @@
     "strict": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "lib": ["ES2019", "dom"],
+    "lib": ["ES2022", "dom"],
     "declaration": true,
     "isolatedModules": true,
     "sourceMap": true,

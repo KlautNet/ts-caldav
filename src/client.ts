@@ -17,6 +17,7 @@ import {
 import { formatDate } from "./utils/encode";
 import { parseCalendars, parseEvents, parseTodos } from "./utils/parser";
 import { first, normalizeSlashEnd } from "./utils/common";
+import { CalDAVError } from "./errors";
 
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
@@ -189,7 +190,7 @@ export class CalDAVClient {
 
     const principalHref = this.getHrefFromProp(cup, "current-user-principal");
     if (!principalHref) {
-      throw new Error(
+      throw new CalDAVError(
         "User principal not found: credentials rejected or server misconfigured.",
       );
     }
@@ -204,7 +205,7 @@ export class CalDAVClient {
 
     const homeHref = this.getHrefFromProp(chs, "calendar-home-set");
     if (!homeHref)
-      throw new Error("calendar-home-set not found for principal.");
+      throw new CalDAVError("calendar-home-set not found for principal.");
     const homeUrl = this.absolutize(this.resolveUrl(homeHref));
     this.calendarHome = homeUrl;
 
@@ -215,8 +216,10 @@ export class CalDAVClient {
         `<d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>`,
       );
     } catch (e) {
-      throw new Error(
-        `Authenticated but failed to access calendar home at ${homeUrl}: ${e}`,
+      throw new CalDAVError(
+        `Authenticated but failed to access calendar home at ${homeUrl}.`,
+        undefined,
+        { cause: e },
       );
     }
   }
@@ -226,7 +229,7 @@ export class CalDAVClient {
    */
 
   public async getCalendars(): Promise<Calendar[]> {
-    if (!this.calendarHome) throw new Error("Calendar home not found.");
+    if (!this.calendarHome) throw new CalDAVError("Calendar home not found.");
 
     const requestBody = `
       <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:apple="http://apple.com/ns/ical/">
@@ -403,7 +406,7 @@ export class CalDAVClient {
   public async getETag(href: string): Promise<string> {
     try {
       const data = await this.propfind(
-        href,
+        this.absolutize(href),
         "0",
         `<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>`,
       );
@@ -412,10 +415,15 @@ export class CalDAVClient {
       const etagRaw =
         parsed?.multistatus?.response?.propstat?.prop?.getetag ??
         parsed?.multistatus?.response?.[0]?.propstat?.prop?.getetag;
-      if (!etagRaw) throw new Error("ETag not found in PROPFIND response.");
+      if (!etagRaw) throw new CalDAVError("ETag not found in PROPFIND response.");
       return String(etagRaw).replace(/^W\//, "");
     } catch (error) {
-      throw new Error(`Failed to retrieve ETag for ${href}: ${error}`);
+      if (error instanceof CalDAVError) throw error;
+      throw new CalDAVError(
+        `Failed to retrieve ETag for ${href}.`,
+        axios.isAxiosError(error) ? error.response?.status : undefined,
+        { cause: error },
+      );
     }
   }
 
@@ -579,8 +587,10 @@ export class CalDAVClient {
       const xml = await this.report(calendarUrl, requestBody, "1");
       return await parseFn(xml);
     } catch (error) {
-      throw new Error(
-        `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server. ${error}`,
+      throw new CalDAVError(
+        `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server.`,
+        axios.isAxiosError(error) ? error.response?.status : undefined,
+        { cause: error },
       );
     }
   }
@@ -753,7 +763,7 @@ export class CalDAVClient {
     itemType: "event" | "todo",
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     if (!calendarUrl)
-      throw new Error(`Calendar URL is required to create a ${itemType}.`);
+      throw new CalDAVError(`Calendar URL is required to create a ${itemType}.`);
 
     const base = normalizeSlashEnd(calendarUrl);
     const uid = data.uid || uuidv4();
@@ -772,13 +782,17 @@ export class CalDAVClient {
       return { uid, href: `${base}/${uid}.ics`, etag, newCtag };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 412) {
-        throw new Error(
-          `${
-            itemType[0].toUpperCase() + itemType.slice(1)
-          } with the specified uid already exists.`,
+        throw new CalDAVError(
+          `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid already exists.`,
+          412,
+          { cause: error },
         );
       }
-      throw new Error(`Failed to create ${itemType}: ${error}`);
+      throw new CalDAVError(
+        `Failed to create ${itemType}.`,
+        axios.isAxiosError(error) ? error.response?.status : undefined,
+        { cause: error },
+      );
     }
   }
 
@@ -791,7 +805,7 @@ export class CalDAVClient {
     itemType: "event" | "todo",
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     if (!item.uid || !item.href) {
-      throw new Error(
+      throw new CalDAVError(
         `Both 'uid' and 'href' are required to update a ${itemType}.`,
       );
     }
@@ -804,21 +818,24 @@ export class CalDAVClient {
     if (ifMatch && !this.isWeak(item.etag)) {
       extraHeaders["If-Match"] = ifMatch;
     }
-
     try {
-      const response = await this.mkIcsPut(item.href, ics, extraHeaders);
+      const response = await this.mkIcsPut(this.absolutize(item.href), ics, extraHeaders);
       const newEtag = response.headers["etag"] || "";
       const newCtag = await this.getCtag(base);
       return { uid: item.uid, href: item.href, etag: newEtag, newCtag };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 412) {
-        throw new Error(
-          `${
-            itemType[0].toUpperCase() + itemType.slice(1)
-          } with the specified uid does not match.`,
+        throw new CalDAVError(
+          `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid does not match.`,
+          412,
+          { cause: error },
         );
       }
-      throw new Error(`Failed to update ${itemType}: ${error}`);
+      throw new CalDAVError(
+        `Failed to update ${itemType}.`,
+        axios.isAxiosError(error) ? error.response?.status : undefined,
+        { cause: error },
+      );
     }
   }
 
@@ -836,7 +853,11 @@ export class CalDAVClient {
         validateStatus: (s) => s === 204 || s === 200,
       });
     } catch (error) {
-      throw new Error(`Failed to delete ${itemType}: ${error}`);
+      throw new CalDAVError(
+        `Failed to delete ${itemType}.`,
+        axios.isAxiosError(error) ? error.response?.status : undefined,
+        { cause: error },
+      );
     }
   }
 
