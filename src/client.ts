@@ -667,6 +667,15 @@ export class CalDAVClient {
       vevent.addPropertyWithValue("rrule", rruleProps);
     }
 
+    if (event.customFields) {
+      for (const [key, value] of Object.entries(event.customFields)) {
+        const values = Array.isArray(value) ? value : [value];
+        for (const v of values) {
+          vevent.addPropertyWithValue(key.toLowerCase(), v);
+        }
+      }
+    }
+
     if (event.alarms) {
       for (const alarm of event.alarms) {
         const valarm = new ICAL.Component("valarm");
@@ -726,6 +735,15 @@ export class CalDAVClient {
     if (todo.status) vtodo.addPropertyWithValue("status", todo.status);
     if (todo.sortOrder !== undefined)
       vtodo.addPropertyWithValue("X-APPLE-SORT-ORDER", todo.sortOrder);
+
+    if (todo.customFields) {
+      for (const [key, value] of Object.entries(todo.customFields)) {
+        const values = Array.isArray(value) ? value : [value];
+        for (const v of values) {
+          vtodo.addPropertyWithValue(key.toLowerCase(), v);
+        }
+      }
+    }
 
     if (todo.alarms) {
       for (const alarm of todo.alarms) {
