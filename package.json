@@ -2,6 +2,10 @@
   "name": "ts-caldav",
   "version": "0.3.2",
   "description": "A CalDAV client written in TypeScript",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KlautNet/ts-caldav"
+  },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
