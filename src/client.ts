@@ -796,7 +796,7 @@ export class CalDAVClient {
         (s) => s === 201 || s === 204,
       );
       const etag = response.headers["etag"] || "";
-      const newCtag = await this.getCtag(base);
+      const newCtag = await this.getCtag(calendarUrl);
       return { uid, href: `${base}/${uid}.ics`, etag, newCtag };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 412) {
@@ -839,7 +839,7 @@ export class CalDAVClient {
     try {
       const response = await this.mkIcsPut(this.absolutize(item.href), ics, extraHeaders);
       const newEtag = response.headers["etag"] || "";
-      const newCtag = await this.getCtag(base);
+      const newCtag = await this.getCtag(calendarUrl);
       return { uid: item.uid, href: item.href, etag: newEtag, newCtag };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 412) {

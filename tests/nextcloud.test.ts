@@ -41,7 +41,7 @@ describe("Alarm Handling", () => {
     });
 
     const todo = todos.find((t) => t.uid === res.uid);
-    console.log("Retrieved Todos:", todos);
+
     expect(todo).toBeDefined();
     expect(todo!.customFields).toBeDefined();
     expect(todo!.customFields!["percent-complete"]).toBe("50");
