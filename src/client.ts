@@ -39,8 +39,20 @@ export class CalDAVClient {
   public baseUrl: string;
 
   private constructor(private options: CalDAVOptions) {
+    let httpsAgent: unknown;
+    if (options.rejectUnauthorized === false) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const https = require("https");
+        httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      } catch {
+        /* not a Node.js environment — skip */
+      }
+    }
+
     this.httpClient = axios.create({
       baseURL: options.baseUrl,
+      httpsAgent,
       headers: {
         Authorization:
           options.auth.type === "basic"
@@ -415,7 +427,8 @@ export class CalDAVClient {
       const etagRaw =
         parsed?.multistatus?.response?.propstat?.prop?.getetag ??
         parsed?.multistatus?.response?.[0]?.propstat?.prop?.getetag;
-      if (!etagRaw) throw new CalDAVError("ETag not found in PROPFIND response.");
+      if (!etagRaw)
+        throw new CalDAVError("ETag not found in PROPFIND response.");
       return String(etagRaw).replace(/^W\//, "");
     } catch (error) {
       if (error instanceof CalDAVError) throw error;
@@ -781,7 +794,9 @@ export class CalDAVClient {
     itemType: "event" | "todo",
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
     if (!calendarUrl)
-      throw new CalDAVError(`Calendar URL is required to create a ${itemType}.`);
+      throw new CalDAVError(
+        `Calendar URL is required to create a ${itemType}.`,
+      );
 
     const base = normalizeSlashEnd(calendarUrl);
     const uid = data.uid || uuidv4();
@@ -828,7 +843,6 @@ export class CalDAVClient {
       );
     }
 
-    const base = normalizeSlashEnd(calendarUrl);
     const ics = buildFn(item, item.uid);
 
     const ifMatch = this.cleanEtag(item.etag);
@@ -837,7 +851,11 @@ export class CalDAVClient {
       extraHeaders["If-Match"] = ifMatch;
     }
     try {
-      const response = await this.mkIcsPut(this.absolutize(item.href), ics, extraHeaders);
+      const response = await this.mkIcsPut(
+        this.absolutize(item.href),
+        ics,
+        extraHeaders,
+      );
       const newEtag = response.headers["etag"] || "";
       const newCtag = await this.getCtag(calendarUrl);
       return { uid: item.uid, href: item.href, etag: newEtag, newCtag };

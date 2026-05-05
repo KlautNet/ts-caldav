@@ -7,6 +7,7 @@ export interface CalDAVOptions {
   logRequests?: boolean;
   prodId?: string;
   headers?: AxiosHeaders;
+  rejectUnauthorized?: boolean;
 }
 
 export type AuthOptions =
