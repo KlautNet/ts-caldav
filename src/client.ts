@@ -1,5 +1,4 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
-import { encode } from "base-64";
 import { XMLParser } from "fast-xml-parser";
 import ICAL from "ical.js";
 import { v4 as uuidv4 } from "uuid";
@@ -56,9 +55,7 @@ export class CalDAVClient {
       headers: {
         Authorization:
           options.auth.type === "basic"
-            ? `Basic ${encode(
-                `${options.auth.username}:${options.auth.password}`,
-              )}`
+            ? `Basic ${btoa(`${options.auth.username}:${options.auth.password}`)}`
             : `Bearer ${options.auth.accessToken}`,
         "Content-Type": XML_CT,
         ...options.headers,
