@@ -147,6 +147,10 @@ const KNOWN_EVENT_PROPERTIES = new Set([
   "dtstart",
   "dtend",
   "rrule",
+  "dtstamp",
+  "created",
+  "last-modified",
+  "sequence",
 ]);
 
 export const parseEvents = async (
@@ -170,106 +174,102 @@ export const parseEvents = async (
 
     const cleanedCalendarData = rawCalendarData.replace(/&#13;/g, "\r");
 
-    try {
-      const jcalData = ICAL.parse(cleanedCalendarData);
-      const vcalendar = new ICAL.Component(jcalData);
+    const jcalData = ICAL.parse(cleanedCalendarData);
+    const vcalendar = new ICAL.Component(jcalData);
 
-      const vevents = vcalendar.getAllSubcomponents("vevent");
-      for (const vevent of vevents) {
-        const icalEvent = new ICAL.Event(vevent);
+    const vevents = vcalendar.getAllSubcomponents("vevent");
+    for (const vevent of vevents) {
+      const icalEvent = new ICAL.Event(vevent);
 
-        const dtStartProp = vevent.getFirstProperty("dtstart");
-        const dtEndProp = vevent.getFirstProperty("dtend");
+      const dtStartProp = vevent.getFirstProperty("dtstart");
+      const dtEndProp = vevent.getFirstProperty("dtend");
 
-        const isWholeDay = icalEvent.startDate.isDate;
-        const startDate = icalEvent.startDate.toJSDate();
-        const endDate = icalEvent.endDate?.toJSDate() ?? startDate;
+      const isWholeDay = icalEvent.startDate.isDate;
+      const startDate = icalEvent.startDate.toJSDate();
+      const endDate = icalEvent.endDate?.toJSDate() ?? startDate;
 
-        const adjustedEnd = isWholeDay ? new Date(endDate.getTime()) : endDate;
+      const adjustedEnd = isWholeDay ? new Date(endDate.getTime()) : endDate;
 
-        const startTzid = normalizeParam(dtStartProp?.getParameter("tzid"));
-        const endTzid = normalizeParam(dtEndProp?.getParameter("tzid"));
+      const startTzid = normalizeParam(dtStartProp?.getParameter("tzid"));
+      const endTzid = normalizeParam(dtEndProp?.getParameter("tzid"));
 
-        const rruleProp = vevent.getFirstProperty("rrule");
-        let recurrenceRule: RecurrenceRule | undefined;
-        if (rruleProp) {
-          const rruleValue = rruleProp.getFirstValue();
-          if (rruleValue) {
-            const recur = ICAL.Recur.fromString(rruleValue.toString());
-            recurrenceRule = parseRecurrence(recur);
-          }
+      const rruleProp = vevent.getFirstProperty("rrule");
+      let recurrenceRule: RecurrenceRule | undefined;
+      if (rruleProp) {
+        const rruleValue = rruleProp.getFirstValue();
+        if (rruleValue) {
+          const recur = ICAL.Recur.fromString(rruleValue.toString());
+          recurrenceRule = parseRecurrence(recur);
         }
-
-        const alarms: Alarm[] = [];
-        const valarms = vevent.getAllSubcomponents("valarm") || [];
-
-        for (const valarm of valarms) {
-          const action = valarm.getFirstPropertyValue("action");
-          const trigger = valarm.getFirstPropertyValue("trigger")?.toString();
-
-          if (!action || !trigger) continue;
-
-          if (action === "DISPLAY") {
-            alarms.push({
-              action: "DISPLAY",
-              trigger,
-              description: valarm
-                .getFirstPropertyValue("description")
-                ?.toString(),
-            });
-          } else if (action === "EMAIL") {
-            const attendees =
-              valarm
-                .getAllProperties("attendee")
-                ?.map((p) => p.getFirstValue())
-                .filter((v): v is string => typeof v === "string") || [];
-
-            alarms.push({
-              action: "EMAIL",
-              trigger,
-              description: valarm
-                .getFirstPropertyValue("description")
-                ?.toString(),
-              summary: valarm.getFirstPropertyValue("summary")?.toString(),
-              attendees,
-            });
-          } else if (action === "AUDIO") {
-            alarms.push({ action: "AUDIO", trigger });
-          }
-        }
-
-        const rawStatus = vevent.getFirstPropertyValue("status")?.toString();
-        const status = EVENT_STATUSES.includes(rawStatus as EventStatus)
-          ? (rawStatus as EventStatus)
-          : undefined;
-
-        const customFields = generateCustomFields(
-          vevent,
-          KNOWN_EVENT_PROPERTIES,
-        );
-
-        events.push({
-          uid: icalEvent.uid,
-          summary: icalEvent.summary || "Untitled Event",
-          start: startDate,
-          end: adjustedEnd,
-          description: icalEvent.description || undefined,
-          location: icalEvent.location || undefined,
-          status: status || undefined,
-          etag: eventData["getetag"] || "",
-          href: baseUrl
-            ? new URL(obj["href"], baseUrl).toString()
-            : obj["href"],
-          wholeDay: isWholeDay,
-          recurrenceRule,
-          startTzid,
-          endTzid,
-          alarms,
-          ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
-        });
       }
-    } catch (error) {
-      throw error;
+
+      const alarms: Alarm[] = [];
+      const valarms = vevent.getAllSubcomponents("valarm") || [];
+
+      for (const valarm of valarms) {
+        const action = valarm.getFirstPropertyValue("action");
+        const trigger = valarm.getFirstPropertyValue("trigger")?.toString();
+
+        if (!action || !trigger) continue;
+
+        if (action === "DISPLAY") {
+          alarms.push({
+            action: "DISPLAY",
+            trigger,
+            description: valarm
+              .getFirstPropertyValue("description")
+              ?.toString(),
+          });
+        } else if (action === "EMAIL") {
+          const attendees =
+            valarm
+              .getAllProperties("attendee")
+              ?.map((p) => p.getFirstValue())
+              .filter((v): v is string => typeof v === "string") || [];
+
+          alarms.push({
+            action: "EMAIL",
+            trigger,
+            description: valarm
+              .getFirstPropertyValue("description")
+              ?.toString(),
+            summary: valarm.getFirstPropertyValue("summary")?.toString(),
+            attendees,
+          });
+        } else if (action === "AUDIO") {
+          alarms.push({ action: "AUDIO", trigger });
+        }
+      }
+
+      const rawStatus = vevent.getFirstPropertyValue("status")?.toString();
+      const status = EVENT_STATUSES.includes(rawStatus as EventStatus)
+        ? (rawStatus as EventStatus)
+        : undefined;
+
+      const customFields = generateCustomFields(
+        vevent,
+        KNOWN_EVENT_PROPERTIES,
+      );
+
+      events.push({
+        uid: icalEvent.uid,
+        summary: icalEvent.summary || "Untitled Event",
+        start: startDate,
+        end: adjustedEnd,
+        description: icalEvent.description || undefined,
+        location: icalEvent.location || undefined,
+        status: status || undefined,
+        etag: eventData["getetag"] || "",
+        href: baseUrl
+          ? new URL(obj["href"], baseUrl).toString()
+          : obj["href"],
+        wholeDay: isWholeDay,
+        recurrenceRule,
+        startTzid,
+        endTzid,
+        alarms,
+        ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
+      });
     }
   }
 
@@ -286,6 +286,10 @@ const KNOWN_TODO_PROPERTIES = new Set([
   "dtstart",
   "due",
   "completed",
+  "dtstamp",
+  "created",
+  "last-modified",
+  "sequence",
 ]);
 
 export const parseTodos = async (
@@ -309,111 +313,107 @@ export const parseTodos = async (
 
     const cleanedCalendarData = rawCalendarData.replace(/&#13;/g, "\r\n");
 
-    try {
-      const jcalData = ICAL.parse(cleanedCalendarData);
-      const vcalendar = new ICAL.Component(jcalData);
+    const jcalData = ICAL.parse(cleanedCalendarData);
+    const vcalendar = new ICAL.Component(jcalData);
 
-      const vtodos = vcalendar.getAllSubcomponents("vtodo");
-      for (const vtodo of vtodos) {
-        const uid = vtodo.getFirstPropertyValue("uid") as string;
-        const summary =
-          (vtodo.getFirstPropertyValue("summary") as string) || "Untitled Todo";
-        const description = vtodo.getFirstPropertyValue("description") as
-          | string
-          | undefined;
-        const location = vtodo.getFirstPropertyValue("location") as
-          | string
-          | undefined;
+    const vtodos = vcalendar.getAllSubcomponents("vtodo");
+    for (const vtodo of vtodos) {
+      const uid = vtodo.getFirstPropertyValue("uid") as string;
+      const summary =
+        (vtodo.getFirstPropertyValue("summary") as string) || "Untitled Todo";
+      const description = vtodo.getFirstPropertyValue("description") as
+        | string
+        | undefined;
+      const location = vtodo.getFirstPropertyValue("location") as
+        | string
+        | undefined;
 
-        const rawStatus = vtodo.getFirstPropertyValue("status") as
-          | string
-          | undefined;
-        const status = TODO_STATUSES.includes(rawStatus as TodoStatus)
-          ? (rawStatus as TodoStatus)
+      const rawStatus = vtodo.getFirstPropertyValue("status") as
+        | string
+        | undefined;
+      const status = TODO_STATUSES.includes(rawStatus as TodoStatus)
+        ? (rawStatus as TodoStatus)
+        : undefined;
+
+      const sortOrderRaw = vtodo.getFirstPropertyValue(
+        "x-apple-sort-order",
+      ) as string | number | null | undefined;
+      const sortOrder =
+        sortOrderRaw !== undefined && sortOrderRaw !== null
+          ? Number(sortOrderRaw)
           : undefined;
 
-        const sortOrderRaw = vtodo.getFirstPropertyValue(
-          "x-apple-sort-order",
-        ) as string | number | null | undefined;
-        const sortOrder =
-          sortOrderRaw !== undefined && sortOrderRaw !== null
-            ? Number(sortOrderRaw)
-            : undefined;
+      const dtStartProp = vtodo.getFirstProperty("dtstart");
+      const dueProp = vtodo.getFirstProperty("due");
+      const completedProp = vtodo.getFirstProperty("completed");
 
-        const dtStartProp = vtodo.getFirstProperty("dtstart");
-        const dueProp = vtodo.getFirstProperty("due");
-        const completedProp = vtodo.getFirstProperty("completed");
+      const start = dtStartProp
+        ? (dtStartProp.getFirstValue() as ICAL.Time).toJSDate()
+        : undefined;
+      const due = dueProp
+        ? (dueProp.getFirstValue() as ICAL.Time).toJSDate()
+        : undefined;
+      const completed = completedProp
+        ? (completedProp.getFirstValue() as ICAL.Time).toJSDate()
+        : undefined;
 
-        const start = dtStartProp
-          ? (dtStartProp.getFirstValue() as ICAL.Time).toJSDate()
-          : undefined;
-        const due = dueProp
-          ? (dueProp.getFirstValue() as ICAL.Time).toJSDate()
-          : undefined;
-        const completed = completedProp
-          ? (completedProp.getFirstValue() as ICAL.Time).toJSDate()
-          : undefined;
+      const alarms: Alarm[] = [];
+      const valarms = vtodo.getAllSubcomponents("valarm") || [];
 
-        const alarms: Alarm[] = [];
-        const valarms = vtodo.getAllSubcomponents("valarm") || [];
+      for (const valarm of valarms) {
+        const action = valarm.getFirstPropertyValue("action");
+        const trigger = valarm.getFirstPropertyValue("trigger")?.toString();
 
-        for (const valarm of valarms) {
-          const action = valarm.getFirstPropertyValue("action");
-          const trigger = valarm.getFirstPropertyValue("trigger")?.toString();
+        if (!action || !trigger) continue;
 
-          if (!action || !trigger) continue;
+        if (action === "DISPLAY") {
+          alarms.push({
+            action: "DISPLAY",
+            trigger,
+            description: valarm
+              .getFirstPropertyValue("description")
+              ?.toString(),
+          });
+        } else if (action === "EMAIL") {
+          const attendees =
+            valarm
+              .getAllProperties("attendee")
+              ?.map((p) => p.getFirstValue())
+              .filter((v): v is string => typeof v === "string") || [];
 
-          if (action === "DISPLAY") {
-            alarms.push({
-              action: "DISPLAY",
-              trigger,
-              description: valarm
-                .getFirstPropertyValue("description")
-                ?.toString(),
-            });
-          } else if (action === "EMAIL") {
-            const attendees =
-              valarm
-                .getAllProperties("attendee")
-                ?.map((p) => p.getFirstValue())
-                .filter((v): v is string => typeof v === "string") || [];
-
-            alarms.push({
-              action: "EMAIL",
-              trigger,
-              description: valarm
-                .getFirstPropertyValue("description")
-                ?.toString(),
-              summary: valarm.getFirstPropertyValue("summary")?.toString(),
-              attendees,
-            });
-          } else if (action === "AUDIO") {
-            alarms.push({ action: "AUDIO", trigger });
-          }
+          alarms.push({
+            action: "EMAIL",
+            trigger,
+            description: valarm
+              .getFirstPropertyValue("description")
+              ?.toString(),
+            summary: valarm.getFirstPropertyValue("summary")?.toString(),
+            attendees,
+          });
+        } else if (action === "AUDIO") {
+          alarms.push({ action: "AUDIO", trigger });
         }
-
-        const customFields = generateCustomFields(vtodo, KNOWN_TODO_PROPERTIES);
-
-        todos.push({
-          uid,
-          summary,
-          start,
-          due,
-          completed,
-          status,
-          description,
-          location,
-          etag: todoData["getetag"] || "",
-          href: baseUrl
-            ? new URL(obj["href"], baseUrl).toString()
-            : obj["href"],
-          alarms,
-          sortOrder,
-          ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
-        });
       }
-    } catch (error) {
-      throw error;
+
+      const customFields = generateCustomFields(vtodo, KNOWN_TODO_PROPERTIES);
+
+      todos.push({
+        uid,
+        summary,
+        start,
+        due,
+        completed,
+        status,
+        description,
+        location,
+        etag: todoData["getetag"] || "",
+        href: baseUrl
+          ? new URL(obj["href"], baseUrl).toString()
+          : obj["href"],
+        alarms,
+        sortOrder,
+        ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
+      });
     }
   }
 
