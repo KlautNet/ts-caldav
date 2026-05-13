@@ -28,7 +28,7 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
-    # Skips gracefully if secrets are absent (e.g. forks, external PRs).
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     env:
       CALDAV_BASE_URL: ${{ secrets.CALDAV_BASE_URL }}
       CALDAV_USERNAME: ${{ secrets.CALDAV_USERNAME }}

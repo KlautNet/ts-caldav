@@ -18,8 +18,8 @@ dependencies:
     specifier: ^2.2.1
     version: 2.2.1
   uuid:
-    specifier: ^11.1.0
-    version: 11.1.1
+    specifier: ^14.0.0
+    version: 14.0.0
 
 devDependencies:
   '@eslint/js':
@@ -2061,8 +2061,8 @@ packages:
       punycode: 2.3.1
     dev: true
 
-  /uuid@11.1.1:
-    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
+  /uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
     dev: false
 
