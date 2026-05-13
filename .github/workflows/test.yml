@@ -28,11 +28,10 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
     env:
-      CALDAV_BASE_URL: ${{ secrets.CALDAV_BASE_URL }}
-      CALDAV_USERNAME: ${{ secrets.CALDAV_USERNAME }}
-      CALDAV_PASSWORD: ${{ secrets.CALDAV_PASSWORD }}
+      CALDAV_BASE_URL: http://localhost:8523/
+      CALDAV_USERNAME: test
+      CALDAV_PASSWORD: test
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +43,24 @@ jobs:
         with:
           node-version: "20"
           cache: pnpm
+
+      - name: Install Radicale
+        run: pip install radicale
+
+      - name: Start Radicale
+        run: radicale --config radicale.conf &
+
+      - name: Wait for Radicale
+        run: until curl -s -o /dev/null http://localhost:8523/; do sleep 0.5; done
+
+      - name: Seed test calendar
+        run: |
+          curl -u test:test -X MKCOL http://localhost:8523/test/ \
+            -H "Content-Type: application/xml" \
+            -d '<?xml version="1.0"?><D:mkcol xmlns:D="DAV:"><D:set><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:set></D:mkcol>'
+          curl -f -u test:test -X MKCALENDAR http://localhost:8523/test/calendar/ \
+            -H "Content-Type: application/xml" \
+            -d '<?xml version="1.0"?><C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:set><D:prop><D:displayname>Test</D:displayname><C:supported-calendar-component-set><C:comp name="VEVENT"/><C:comp name="VTODO"/></C:supported-calendar-component-set></D:prop></D:set></C:mkcalendar>'
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:integration

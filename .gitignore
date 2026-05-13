@@ -39,5 +39,4 @@ tsconfig.tsbuildinfo
 .fleet
 .vscode
 
-radicale.conf
 radicale_data
