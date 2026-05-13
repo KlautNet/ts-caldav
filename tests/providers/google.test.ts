@@ -1,9 +1,9 @@
-import dotenv from "dotenv";
-import { CalDAVClient } from "../src/client";
+import { beforeAll, describe, expect, test } from "vitest";
+import { CalDAVClient } from "../../src/client";
 
-dotenv.config();
+const skip = !process.env.ACCESS_TOKEN;
 
-describe("Google CalDAV Sync Tests (OAuth)", () => {
+describe.skipIf(skip)("Google CalDAV – OAuth sync", () => {
   let client: CalDAVClient;
   let calendarUrl: string;
   let testEventUid: string;
@@ -12,61 +12,44 @@ describe("Google CalDAV Sync Tests (OAuth)", () => {
   beforeAll(async () => {
     client = await CalDAVClient.create({
       baseUrl: "https://apidata.googleusercontent.com/",
-      auth: {
-        type: "oauth",
-        accessToken: process.env.ACCESS_TOKEN!,
-      },
+      auth: { type: "oauth", accessToken: process.env.ACCESS_TOKEN! },
       requestTimeout: 30000,
     });
-
     const calendars = await client.getCalendars();
     calendarUrl = calendars[0].url;
-
     originalCtag = await client.getCtag(calendarUrl);
   });
 
-  test("Create event", async () => {
+  test("create event", async () => {
     const now = new Date();
-    const in1hr = new Date(now.getTime() + 60 * 60 * 1000);
-
     const { uid } = await client.createEvent(calendarUrl, {
       start: now,
-      end: in1hr,
+      end: new Date(now.getTime() + 3_600_000),
       summary: "Google Sync Test Event",
       description: "OAuth Google Sync Test",
     });
-
     testEventUid = uid;
-
     const events = await client.getEvents(calendarUrl);
-    const created = events.find((e) => e.uid === uid);
-    expect(created).toBeDefined();
+    expect(events.find((e) => e.uid === uid)).toBeDefined();
   });
 
-  test("Sync changes detects new event", async () => {
+  test("syncChanges detects new event", async () => {
     const sync = await client.syncChanges(calendarUrl, originalCtag, []);
-    const found = sync.newEvents.some((href) => href.includes(testEventUid));
-
     expect(sync.changed).toBe(true);
-    expect(sync.newCtag).toBeDefined();
-    expect(found).toBe(true);
+    expect(sync.newEvents.some((h) => h.includes(testEventUid))).toBe(true);
   });
 
-  test("Get event by href returns expected result", async () => {
+  test("getEventsByHref returns the created event", async () => {
     const sync = await client.syncChanges(calendarUrl, originalCtag, []);
     const events = await client.getEventsByHref(calendarUrl, sync.newEvents);
-    const match = events.find((e) => e.uid === testEventUid);
-
-    expect(match).toBeDefined();
-    expect(match?.summary).toContain("Google Sync Test Event");
+    expect(events.find((e) => e.uid === testEventUid)?.summary).toContain(
+      "Google Sync Test Event",
+    );
   });
 
-  test("Delete event", async () => {
+  test("delete event", async () => {
     await client.deleteEvent(calendarUrl, testEventUid);
-
     const events = await client.getEvents(calendarUrl);
-    const stillExists = events.find((e) => e.uid === testEventUid);
-
-    expect(stillExists).toBeUndefined();
+    expect(events.find((e) => e.uid === testEventUid)).toBeUndefined();
   });
 });

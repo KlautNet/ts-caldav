@@ -7,40 +7,43 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
-
-    env:
-      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
-      CALDAV_BASE_URL: ${{ secrets.CALDAV_BASE_URL }}
-      CALDAV_USERNAME: ${{ secrets.CALDAV_USERNAME }}
-      CALDAV_PASSWORD: ${{ secrets.CALDAV_PASSWORD }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 8
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
 
-      - name: Run tests
-        run: |
-          pnpm test -- tests/client.test.ts \
-                       tests/recurrence.test.ts \
-                       tests/timezone.test.ts \
-                       tests/alarms.test.ts \
-                       tests/description-encoding.test.ts \
-                       tests/cache.test.ts \
-                       tests/todos.test.ts \
-                       tests/custom-fields.test.ts
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    # Skips gracefully if secrets are absent (e.g. forks, external PRs).
+    env:
+      CALDAV_BASE_URL: ${{ secrets.CALDAV_BASE_URL }}
+      CALDAV_USERNAME: ${{ secrets.CALDAV_USERNAME }}
+      CALDAV_PASSWORD: ${{ secrets.CALDAV_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration

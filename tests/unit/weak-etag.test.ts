@@ -1,8 +1,17 @@
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import axios from "axios";
-import { CalDAVClient } from "../src/client";
+import { CalDAVClient } from "../../src/client";
 
-jest.mock("axios");
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+vi.mock("axios", () => ({
+  default: {
+    create: vi.fn(),
+    isAxiosError: vi.fn(() => false),
+  },
+}));
+
+const CTAG_RESPONSE = `<multistatus xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/">
+  <response><propstat><prop><cs:getctag>ctag-1</cs:getctag></prop></propstat></response>
+</multistatus>`;
 
 let capturedPutHeaders: Record<string, string> = {};
 
@@ -10,11 +19,8 @@ beforeEach(() => {
   capturedPutHeaders = {};
 
   const fakeHttpClient = {
-    interceptors: {
-      request: { use: jest.fn() },
-      response: { use: jest.fn() },
-    },
-    put: jest.fn(
+    interceptors: { request: { use: vi.fn() } },
+    put: vi.fn(
       (
         _url: string,
         _data: unknown,
@@ -24,20 +30,15 @@ beforeEach(() => {
         return Promise.resolve({ headers: { etag: '"new-etag"' }, data: "" });
       },
     ),
-    request: jest.fn(() => {
-      return Promise.resolve({
-        headers: {},
-        data: `<multistatus xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/">
-                 <response><propstat><prop><getctag>ctag1</getctag></prop></propstat></response>
-               </multistatus>`,
-      });
-    }),
+    request: vi.fn(() =>
+      Promise.resolve({ headers: {}, data: CTAG_RESPONSE }),
+    ),
   } as unknown as ReturnType<typeof axios.create>;
 
-  mockedAxios.create.mockReturnValue(fakeHttpClient);
+  vi.mocked(axios.create).mockReturnValue(fakeHttpClient);
 });
 
-function makeClient(): CalDAVClient {
+function makeClient() {
   return CalDAVClient.createFromCache(
     {
       baseUrl: "https://example.com",
@@ -56,22 +57,25 @@ const baseTodo = {
   due: new Date("2026-03-20"),
 };
 
-describe("updateTodo — If-Match header behaviour", () => {
+describe("updateTodo – If-Match header behaviour", () => {
   test('weak etag (W/"...") does NOT send If-Match', async () => {
-    const client = makeClient();
-    await client.updateTodo(calendarUrl, { ...baseTodo, etag: 'W/"abc123"' });
+    await makeClient().updateTodo(calendarUrl, {
+      ...baseTodo,
+      etag: 'W/"abc123"',
+    });
     expect(capturedPutHeaders["If-Match"]).toBeUndefined();
   });
 
   test('strong etag ("...") DOES send If-Match', async () => {
-    const client = makeClient();
-    await client.updateTodo(calendarUrl, { ...baseTodo, etag: '"abc123"' });
+    await makeClient().updateTodo(calendarUrl, {
+      ...baseTodo,
+      etag: '"abc123"',
+    });
     expect(capturedPutHeaders["If-Match"]).toBe('"abc123"');
   });
 
   test("missing etag does NOT send If-Match", async () => {
-    const client = makeClient();
-    await client.updateTodo(calendarUrl, { ...baseTodo });
+    await makeClient().updateTodo(calendarUrl, { ...baseTodo });
     expect(capturedPutHeaders["If-Match"]).toBeUndefined();
   });
 });

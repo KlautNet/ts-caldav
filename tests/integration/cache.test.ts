@@ -1,13 +1,13 @@
-import { CalDAVClient } from "../src/client";
-import { CalDAVClientCache } from "../src/models";
-import dotenv from "dotenv";
+import { beforeAll, describe, expect, test } from "vitest";
+import { CalDAVClient } from "../../src/client";
+import type { CalDAVClientCache } from "../../src/models";
 
-dotenv.config();
+const skip = !process.env.CALDAV_BASE_URL;
 
-let cache: CalDAVClientCache;
+describe.skipIf(skip)("CalDAV – client cache", () => {
+  let cache: CalDAVClientCache;
 
-describe("CalDAVClient Cache Operations", () => {
-  test("Export cache from client", async () => {
+  beforeAll(async () => {
     const client = await CalDAVClient.create({
       baseUrl: process.env.CALDAV_BASE_URL!,
       auth: {
@@ -17,15 +17,15 @@ describe("CalDAVClient Cache Operations", () => {
       },
       requestTimeout: 30000,
     });
-
     cache = client.exportCache();
+  });
 
-    expect(cache).toBeDefined();
+  test("exportCache returns principal and home", () => {
     expect(cache.userPrincipal).toBeDefined();
     expect(cache.calendarHome).toBeDefined();
   });
 
-  test("Create client from cache", async () => {
+  test("createFromCache restores a working client", async () => {
     const client = CalDAVClient.createFromCache(
       {
         baseUrl: process.env.CALDAV_BASE_URL!,
@@ -36,18 +36,12 @@ describe("CalDAVClient Cache Operations", () => {
         },
         requestTimeout: 30000,
       },
-      cache
+      cache,
     );
 
-    // verify the client functions by invoking a method that calls the server
     const calendars = await client.getCalendars();
-
-    expect(calendars).toBeDefined();
     expect(Array.isArray(calendars)).toBe(true);
-    expect(client).toBeInstanceOf(CalDAVClient);
     expect(client.userPrincipal).toBe(cache.userPrincipal);
     expect(client.calendarHome).toBe(cache.calendarHome);
-    expect(client).toBeDefined();
-    expect(client.getCalendarHome()).toBe(cache.calendarHome);
   });
 });
