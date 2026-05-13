@@ -9,7 +9,15 @@ permissions:
   id-token: write
 
 jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    secrets: inherit
+
+  codeql:
+    uses: ./.github/workflows/codeql.yml
+
   publish:
+    needs: [security, codeql]
     runs-on: ubuntu-latest
 
     steps:
