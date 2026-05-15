@@ -1,12 +1,10 @@
-import { AxiosHeaders } from "axios";
-
 export interface CalDAVOptions {
   baseUrl: string;
   auth: AuthOptions;
   requestTimeout?: number;
   logRequests?: boolean;
   prodId?: string;
-  headers?: AxiosHeaders;
+  headers?: Record<string, string>;
   rejectUnauthorized?: boolean;
 }
 

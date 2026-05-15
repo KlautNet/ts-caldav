@@ -1,14 +1,6 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import axios from "axios";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ICAL from "ical.js";
 import { CalDAVClient } from "../../src/client";
-
-vi.mock("axios", () => ({
-  default: {
-    create: vi.fn(),
-    isAxiosError: vi.fn(() => false),
-  },
-}));
 
 const CTAG_RESPONSE = `<multistatus xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/">
   <response><propstat><prop><cs:getctag>ctag-1</cs:getctag></prop></propstat></response>
@@ -25,18 +17,21 @@ let capturedICS = "";
 
 beforeEach(() => {
   capturedICS = "";
-  const fakeHttpClient = {
-    interceptors: { request: { use: vi.fn() } },
-    put: vi.fn((_url: string, data: string) => {
-      capturedICS = data;
-      return Promise.resolve({ headers: { etag: '"e1"' }, data: "" });
-    }),
-    request: vi.fn(() =>
-      Promise.resolve({ headers: {}, data: CTAG_RESPONSE }),
-    ),
-  } as unknown as ReturnType<typeof axios.create>;
 
-  vi.mocked(axios.create).mockReturnValue(fakeHttpClient);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        capturedICS = init.body as string;
+        return new Response(null, { status: 204, headers: { etag: '"e1"' } });
+      }
+      return new Response(CTAG_RESPONSE, { status: 207 });
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function makeClient() {

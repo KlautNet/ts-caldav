@@ -1,13 +1,5 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import axios from "axios";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CalDAVClient } from "../../src/client";
-
-vi.mock("axios", () => ({
-  default: {
-    create: vi.fn(),
-    isAxiosError: vi.fn(() => false),
-  },
-}));
 
 const CTAG_RESPONSE = `<multistatus xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/">
   <response><propstat><prop><cs:getctag>ctag-1</cs:getctag></prop></propstat></response>
@@ -18,24 +10,20 @@ let capturedPutHeaders: Record<string, string> = {};
 beforeEach(() => {
   capturedPutHeaders = {};
 
-  const fakeHttpClient = {
-    interceptors: { request: { use: vi.fn() } },
-    put: vi.fn(
-      (
-        _url: string,
-        _data: unknown,
-        config: { headers?: Record<string, string> },
-      ) => {
-        capturedPutHeaders = config?.headers ?? {};
-        return Promise.resolve({ headers: { etag: '"new-etag"' }, data: "" });
-      },
-    ),
-    request: vi.fn(() =>
-      Promise.resolve({ headers: {}, data: CTAG_RESPONSE }),
-    ),
-  } as unknown as ReturnType<typeof axios.create>;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        capturedPutHeaders = (init?.headers as Record<string, string>) ?? {};
+        return new Response(null, { status: 204, headers: { etag: '"new-etag"' } });
+      }
+      return new Response(CTAG_RESPONSE, { status: 207 });
+    }),
+  );
+});
 
-  vi.mocked(axios.create).mockReturnValue(fakeHttpClient);
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function makeClient() {

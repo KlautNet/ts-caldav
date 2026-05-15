@@ -1,4 +1,3 @@
-import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import { XMLParser } from "fast-xml-parser";
 import ICAL from "ical.js";
 import { v4 as uuidv4 } from "uuid";
@@ -17,15 +16,16 @@ import { formatDate } from "./utils/encode";
 import { parseCalendars, parseEvents, parseTodos } from "./utils/parser";
 import { first, normalizeSlashEnd } from "./utils/common";
 import { CalDAVError } from "./errors";
+import HttpClient, { HttpError } from "./http-client";
 
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
-const XML_CT = "application/xml; charset=utf-8";
 const ICS_CT = "text/calendar; charset=utf-8";
-
+//TODO: ADD Support for bypassing TLS BACK
+//TODO: Readd log requests
 export class CalDAVClient {
-  private httpClient: AxiosInstance;
+  private httpClient: HttpClient;
   private prodId: string;
   private parser = new XMLParser({
     removeNSPrefix: true,
@@ -38,47 +38,17 @@ export class CalDAVClient {
   public baseUrl: string;
 
   private constructor(private options: CalDAVOptions) {
-    let httpsAgent: unknown;
-    if (options.rejectUnauthorized === false) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const https = require("https");
-        httpsAgent = new https.Agent({ rejectUnauthorized: false });
-      } catch {
-        /* not a Node.js environment — skip */
-      }
-    }
-
-    this.httpClient = axios.create({
-      baseURL: options.baseUrl,
-      httpsAgent,
-      headers: {
-        Authorization:
-          options.auth.type === "basic"
-            ? `Basic ${btoa(`${options.auth.username}:${options.auth.password}`)}`
-            : `Bearer ${options.auth.accessToken}`,
-        "Content-Type": XML_CT,
-        ...options.headers,
-      },
-      timeout: options.requestTimeout || 5000,
-    });
+    this.httpClient = new HttpClient(
+      options.baseUrl,
+      options.auth,
+      options.rejectUnauthorized ?? true,
+    );
 
     this.prodId = options.prodId || "-//ts-caldav.//CalDAV Client//EN";
     this.calendarHome = null;
     this.userPrincipal = null;
     this.requestTimeout = options.requestTimeout || 5000;
     this.baseUrl = options.baseUrl;
-
-    if (options.logRequests) {
-      this.httpClient.interceptors.request.use((request) => {
-        const base = this.baseUrl.replace(/\/+$/, "");
-        const path = (request.url || "").replace(/^\/+/, "");
-        console.log(
-          `Request: ${request.method?.toUpperCase()} ${base}/${path}`,
-        );
-        return request;
-      });
-    }
   }
 
   /**
@@ -255,7 +225,9 @@ export class CalDAVClient {
       method: "PROPFIND",
       url: this.calendarHome,
       data: requestBody,
-      headers: { Depth: "1", "Content-Type": XML_CT },
+      headers: {
+        Depth: "1", //"Content-Type": XML_CT
+      },
       validateStatus: (s) => s >= 200 && s < 300,
     });
 
@@ -431,7 +403,7 @@ export class CalDAVClient {
       if (error instanceof CalDAVError) throw error;
       throw new CalDAVError(
         `Failed to retrieve ETag for ${href}.`,
-        axios.isAxiosError(error) ? error.response?.status : undefined,
+        error instanceof HttpError ? error.status : undefined,
         { cause: error },
       );
     }
@@ -452,7 +424,9 @@ export class CalDAVClient {
       method: "PROPFIND",
       url: calendarUrl,
       data: requestBody,
-      headers: { Depth: "0", "Content-Type": XML_CT },
+      headers: {
+        Depth: "0", //"Content-Type": XML_CT
+      },
       validateStatus: (s) => s === 207,
     });
 
@@ -599,7 +573,7 @@ export class CalDAVClient {
     } catch (error) {
       throw new CalDAVError(
         `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server.`,
-        axios.isAxiosError(error) ? error.response?.status : undefined,
+        error instanceof HttpError ? error.status : undefined,
         { cause: error },
       );
     }
@@ -811,7 +785,7 @@ export class CalDAVClient {
       const newCtag = await this.getCtag(calendarUrl);
       return { uid, href: `${base}/${uid}.ics`, etag, newCtag };
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 412) {
+      if (error instanceof HttpError && error.status === 412) {
         throw new CalDAVError(
           `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid already exists.`,
           412,
@@ -820,7 +794,7 @@ export class CalDAVClient {
       }
       throw new CalDAVError(
         `Failed to create ${itemType}.`,
-        axios.isAxiosError(error) ? error.response?.status : undefined,
+        error instanceof HttpError ? error.status : undefined,
         { cause: error },
       );
     }
@@ -857,7 +831,7 @@ export class CalDAVClient {
       const newCtag = await this.getCtag(calendarUrl);
       return { uid: item.uid, href: item.href, etag: newEtag, newCtag };
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 412) {
+      if (error instanceof HttpError && error.status === 412) {
         throw new CalDAVError(
           `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid does not match.`,
           412,
@@ -866,7 +840,7 @@ export class CalDAVClient {
       }
       throw new CalDAVError(
         `Failed to update ${itemType}.`,
-        axios.isAxiosError(error) ? error.response?.status : undefined,
+        error instanceof HttpError ? error.status : undefined,
         { cause: error },
       );
     }
@@ -888,7 +862,7 @@ export class CalDAVClient {
     } catch (error) {
       throw new CalDAVError(
         `Failed to delete ${itemType}.`,
-        axios.isAxiosError(error) ? error.response?.status : undefined,
+        error instanceof HttpError ? error.status : undefined,
         { cause: error },
       );
     }
@@ -1018,7 +992,6 @@ export class CalDAVClient {
     url: string,
     depth: "0" | "1",
     body: string,
-    extra?: AxiosRequestConfig,
   ): Promise<unknown> {
     const res = await this.httpClient.request({
       method: "PROPFIND",
@@ -1027,10 +1000,8 @@ export class CalDAVClient {
       headers: {
         Depth: depth,
         Prefer: "return=minimal",
-        "Content-Type": XML_CT,
       },
       validateStatus: (s) => s === 207 || s === 200,
-      ...extra,
     });
     return this.parser.parse(res.data);
   }
@@ -1039,17 +1010,15 @@ export class CalDAVClient {
     url: string,
     body: string,
     depth: "0" | "1" = "1",
-    extra?: AxiosRequestConfig,
   ): Promise<string> {
     const res = await this.httpClient.request({
       method: "REPORT",
       url,
       data: body,
-      headers: { Depth: depth, "Content-Type": XML_CT },
+      headers: { Depth: depth },
       validateStatus: (s) => s >= 200 && s < 300,
-      ...extra,
     });
-    return res.data as string;
+    return res.data;
   }
 
   private async mkIcsPut(
@@ -1069,15 +1038,9 @@ export class CalDAVClient {
       const res = await this.httpClient.request({
         method: "GET",
         url,
-        maxRedirects: 0,
-        validateStatus: (s) => (s >= 200 && s < 300) || (s >= 300 && s < 400),
+        validateStatus: () => true,
       });
-      if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers["location"];
-        if (!loc) throw new Error(`Redirect without Location from ${url}`);
-        return this.absolutize(loc);
-      }
-      return url;
+      return res.url || url;
     } catch {
       return url;
     }

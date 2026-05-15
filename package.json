@@ -4,7 +4,7 @@
   "description": "A CalDAV client written in TypeScript",
   "repository": {
     "type": "git",
-    "url": "https://github.com/KlautNet/ts-caldav"
+    "url": "git+https://github.com/KlautNet/ts-caldav.git"
   },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -50,7 +50,6 @@
     ]
   },
   "dependencies": {
-    "axios": "^1.13.6",
     "fast-xml-parser": "^5.5.6",
     "ical.js": "^2.2.1",
     "uuid": "^14.0.0"
