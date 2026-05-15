@@ -19,8 +19,8 @@
   "sideEffects": false,
   "files": [
     "dist",
-    "README.md",
-    "LICENSE"
+    "readme.md",
+    "license.txt"
   ],
   "scripts": {
     "test": "vitest run tests/unit",
@@ -43,7 +43,7 @@
     "nodejs"
   ],
   "author": "KlautNet",
-  "license": "ISC",
+  "license": "MIT",
   "packageManager": "pnpm@11.1.2",
   "dependencies": {
     "fast-xml-parser": "^5.5.6",

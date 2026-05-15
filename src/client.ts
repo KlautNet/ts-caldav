@@ -43,6 +43,8 @@ export class CalDAVClient {
       options.auth,
       options.rejectUnauthorized ?? true,
       options.headers,
+      options.requestTimeout ?? 5000,
+      options.logRequests ?? false,
     );
 
     this.prodId = options.prodId || "-//ts-caldav.//CalDAV Client//EN";
