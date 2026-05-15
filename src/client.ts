@@ -42,6 +42,7 @@ export class CalDAVClient {
       options.baseUrl,
       options.auth,
       options.rejectUnauthorized ?? true,
+      options.headers,
     );
 
     this.prodId = options.prodId || "-//ts-caldav.//CalDAV Client//EN";
@@ -1038,9 +1039,15 @@ export class CalDAVClient {
       const res = await this.httpClient.request({
         method: "GET",
         url,
-        validateStatus: () => true,
+        redirect: "manual",
+        validateStatus: (s) => (s >= 200 && s < 300) || (s >= 300 && s < 400),
       });
-      return res.url || url;
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers["location"];
+        if (!loc) throw new Error(`Redirect without Location from ${url}`);
+        return new URL(loc, url).toString();
+      }
+      return url;
     } catch {
       return url;
     }

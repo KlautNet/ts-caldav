@@ -16,6 +16,7 @@ type RequestOptions = {
   validateStatus?: (status: number) => boolean;
   data?: string;
   headers?: Record<string, string>;
+  redirect?: RequestRedirect;
 };
 
 export type HttpResponse = {
@@ -29,7 +30,7 @@ class HttpClient {
   private authHeader: string;
 
   constructor(
-    _baseUrl: string,
+    private baseUrl: string,
     auth: AuthOptions,
     private rejectUnauthorized: boolean = true,
     private extraHeaders: Record<string, string> = {},
@@ -46,9 +47,12 @@ class HttpClient {
     validateStatus,
     data,
     headers,
+    redirect,
   }: RequestOptions): Promise<HttpResponse> {
-    const response = await fetch(url, {
+    const requestUrl = new URL(url, this.baseUrl).toString();
+    const response = await fetch(requestUrl, {
       method,
+      redirect,
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
         Authorization: this.authHeader,
