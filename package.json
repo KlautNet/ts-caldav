@@ -45,11 +45,6 @@
   "author": "KlautNet",
   "license": "ISC",
   "packageManager": "pnpm@11.1.2",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "dependencies": {
     "fast-xml-parser": "^5.5.6",
     "ical.js": "^2.2.1",
