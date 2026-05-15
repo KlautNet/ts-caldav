@@ -29,8 +29,6 @@ jobs:
           languages: ${{ matrix.language }}
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 8
 
       - uses: actions/setup-node@v4
         with:
