@@ -44,7 +44,7 @@
   ],
   "author": "KlautNet",
   "license": "ISC",
-  "packageManager": "pnpm@8.15.7",
+  "packageManager": "pnpm@11.1.2",
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
