@@ -1,5 +1,3 @@
-import ICAL from "ical.js";
-import { v4 as uuidv4 } from "uuid";
 import {
   CalDAVClientCache,
   CalDAVOptions,
@@ -11,22 +9,26 @@ import {
   Todo,
   TodoRef,
 } from "./models";
-import { formatDate } from "./utils/encode";
-import { parseCalendars, parseEvents, parseTodos } from "./utils/parser";
-import { normalizeSlashEnd } from "./utils/common";
-import { CalDAVError } from "./errors";
-import HttpClient, { HttpError } from "./http-client";
+import { parseEvents, parseTodos } from "./utils/parser";
+import HttpClient from "./http-client";
+import { parseDavXml } from "./utils/dav";
+import { buildEventICSData, buildTodoICSData } from "./protocol/ics-builders";
+import { PartialBy } from "./protocol/types";
+import { diffRefs } from "./protocol/sync";
+import { discoverCalendarHome } from "./protocol/discovery";
+import { getCalendars as getProtocolCalendars } from "./protocol/calendars";
 import {
-  asNode,
-  asString,
-  getDavResponses,
-  getFirstSuccessfulProp,
-  parseDavXml,
-  toArray,
-} from "./utils/dav";
-
-type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
-type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+  getComponents as getProtocolComponents,
+  getCtag as getProtocolCtag,
+  getETag as getProtocolETag,
+  getItemRefs as getProtocolItemRefs,
+  getItemsByHref as getProtocolItemsByHref,
+} from "./protocol/components";
+import {
+  createItem as createProtocolItem,
+  deleteItem as deleteProtocolItem,
+  updateItem as updateProtocolItem,
+} from "./protocol/crud";
 
 const ICS_CT = "text/calendar; charset=utf-8";
 //TODO: ADD Support for bypassing TLS BACK
@@ -116,96 +118,17 @@ export class CalDAVClient {
    * Discovery
    */
 
-  private async tryDiscoveryRoots(): Promise<string> {
-    try {
-      const wk = this.absolutize("/.well-known/caldav");
-      const redirected = await this.followRedirectOnce(wk);
-
-      const res = await this.httpClient.request({
-        method: "OPTIONS",
-        url: redirected,
-        validateStatus: (s) => s < 400,
-      });
-
-      if (res.status < 400) return redirected;
-    } catch {
-      /* fall through to candidates if .well-known 404s or fails */
-    }
-
-    const candidates = [
-      "/",
-      "/dav",
-      "/caldav",
-      "/caldav.php",
-      "/remote.php/dav",
-    ];
-
-    for (const p of candidates) {
-      try {
-        const abs = this.absolutize(p);
-        const res = await this.httpClient.request({
-          method: "OPTIONS",
-          url: abs,
-          validateStatus: () => true,
-        });
-
-        const allow = String(res.headers["allow"] || "").toUpperCase();
-        const dav = String(res.headers["dav"] || "").toLowerCase();
-
-        const looksDav = allow.includes("PROPFIND") || dav.includes("1");
-
-        if (res.status < 400 && looksDav) return abs;
-      } catch {
-        /* try next */
-      }
-    }
-
-    return this.baseUrl;
-  }
-
   private async discover(): Promise<void> {
-    const discoveryRoot = await this.tryDiscoveryRoots();
+    const { userPrincipal, calendarHome } = await discoverCalendarHome({
+      baseUrl: this.baseUrl,
+      httpClient: this.httpClient,
+      propfind: this.propfind.bind(this),
+      absolutize: this.absolutize.bind(this),
+      resolveUrl: this.resolveUrl.bind(this),
+    });
 
-    const cupXml = `
-      <d:propfind xmlns:d="DAV:">
-        <d:prop><d:current-user-principal/></d:prop>
-      </d:propfind>`;
-    const cup = await this.propfind(discoveryRoot, "0", cupXml);
-
-    const principalHref = this.getHrefFromProp(cup, "current-user-principal");
-    if (!principalHref) {
-      throw new CalDAVError(
-        "User principal not found: credentials rejected or server misconfigured.",
-      );
-    }
-    const principalUrl = this.absolutize(this.resolveUrl(principalHref));
-    this.userPrincipal = principalUrl;
-
-    const chsXml = `
-      <d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-        <d:prop><c:calendar-home-set/></d:prop>
-      </d:propfind>`;
-    const chs = await this.propfind(principalUrl, "0", chsXml);
-
-    const homeHref = this.getHrefFromProp(chs, "calendar-home-set");
-    if (!homeHref)
-      throw new CalDAVError("calendar-home-set not found for principal.");
-    const homeUrl = this.absolutize(this.resolveUrl(homeHref));
-    this.calendarHome = homeUrl;
-
-    try {
-      await this.propfind(
-        homeUrl,
-        "0",
-        `<d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>`,
-      );
-    } catch (e) {
-      throw new CalDAVError(
-        `Authenticated but failed to access calendar home at ${homeUrl}.`,
-        undefined,
-        { cause: e },
-      );
-    }
+    this.userPrincipal = userPrincipal;
+    this.calendarHome = calendarHome;
   }
 
   /*
@@ -213,34 +136,11 @@ export class CalDAVClient {
    */
 
   public async getCalendars(): Promise<Calendar[]> {
-    if (!this.calendarHome) throw new CalDAVError("Calendar home not found.");
-
-    const requestBody = `
-      <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:apple="http://apple.com/ns/ical/">
-        <d:prop>
-          <d:resourcetype/>
-          <d:displayname/>
-          <cs:getctag/>
-          <c:supported-calendar-component-set/>
-          <apple:calendar-color/>
-        </d:prop>
-      </d:propfind>`;
-
-    const response = await this.httpClient.request({
-      method: "PROPFIND",
-      url: this.calendarHome,
-      data: requestBody,
-      headers: {
-        Depth: "1", //"Content-Type": XML_CT
-      },
-      validateStatus: (s) => s >= 200 && s < 300,
+    return getProtocolCalendars({
+      calendarHome: this.calendarHome,
+      httpClient: this.httpClient,
+      resolveUrl: this.resolveUrl.bind(this),
     });
-
-    const calendars = await parseCalendars(response.data);
-    return calendars.map((cal) => ({
-      ...cal,
-      url: this.resolveUrl(cal.url),
-    }));
   }
 
   /*
@@ -257,10 +157,11 @@ export class CalDAVClient {
     calendarUrl: string,
     options?: { start?: Date; end?: Date; all?: boolean },
   ): Promise<Event[]> {
-    return this.getComponents<Event>(
+    return getProtocolComponents<Event>(
       calendarUrl,
       "VEVENT",
       parseEvents,
+      this.report.bind(this),
       options,
     );
   }
@@ -275,11 +176,13 @@ export class CalDAVClient {
     calendarUrl: string,
     eventData: PartialBy<Event, "uid" | "href" | "etag">,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
-    return this.createItem<Event>(
+    return createProtocolItem<Event>(
       calendarUrl,
       eventData,
-      this.buildICSData.bind(this),
+      (event, uid) => buildEventICSData(event, uid, this.prodId),
       "event",
+      this.mkIcsPut.bind(this),
+      this.getCtag.bind(this),
     );
   }
 
@@ -293,11 +196,14 @@ export class CalDAVClient {
     calendarUrl: string,
     event: Event,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
-    return this.updateItem<Event>(
+    return updateProtocolItem<Event>(
       calendarUrl,
       event,
-      this.buildICSData.bind(this),
+      (data, uid) => buildEventICSData(data, uid, this.prodId),
       "event",
+      this.mkIcsPut.bind(this),
+      this.getCtag.bind(this),
+      this.absolutize.bind(this),
     );
   }
 
@@ -306,7 +212,13 @@ export class CalDAVClient {
     eventUid: string,
     etag?: string,
   ): Promise<void> {
-    return this.deleteItem(calendarUrl, eventUid, "event", etag);
+    return deleteProtocolItem(
+      calendarUrl,
+      eventUid,
+      "event",
+      this.httpClient,
+      etag,
+    );
   }
 
   /*
@@ -323,10 +235,16 @@ export class CalDAVClient {
     calendarUrl: string,
     options?: { start?: Date; end?: Date; all?: boolean },
   ): Promise<Todo[]> {
-    return this.getComponents<Todo>(calendarUrl, "VTODO", parseTodos, {
-      all: true,
-      ...options,
-    });
+    return getProtocolComponents<Todo>(
+      calendarUrl,
+      "VTODO",
+      parseTodos,
+      this.report.bind(this),
+      {
+        all: true,
+        ...options,
+      },
+    );
   }
 
   /**
@@ -339,11 +257,13 @@ export class CalDAVClient {
     calendarUrl: string,
     todoData: PartialBy<Todo, "uid" | "href" | "etag">,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
-    return this.createItem<Todo>(
+    return createProtocolItem<Todo>(
       calendarUrl,
       todoData,
-      this.buildTodoICSData.bind(this),
+      (todo, uid) => buildTodoICSData(todo, uid, this.prodId),
       "todo",
+      this.mkIcsPut.bind(this),
+      this.getCtag.bind(this),
     );
   }
 
@@ -357,11 +277,14 @@ export class CalDAVClient {
     calendarUrl: string,
     todo: Todo,
   ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
-    return this.updateItem<Todo>(
+    return updateProtocolItem<Todo>(
       calendarUrl,
       todo,
-      this.buildTodoICSData.bind(this),
+      (data, uid) => buildTodoICSData(data, uid, this.prodId),
       "todo",
+      this.mkIcsPut.bind(this),
+      this.getCtag.bind(this),
+      this.absolutize.bind(this),
     );
   }
 
@@ -376,7 +299,13 @@ export class CalDAVClient {
     todoUid: string,
     etag?: string,
   ): Promise<void> {
-    return this.deleteItem(calendarUrl, todoUid, "todo", etag);
+    return deleteProtocolItem(
+      calendarUrl,
+      todoUid,
+      "todo",
+      this.httpClient,
+      etag,
+    );
   }
 
   /*
@@ -390,26 +319,11 @@ export class CalDAVClient {
    * @returns The ETag string, or throws an error if not found.
    */
   public async getETag(href: string): Promise<string> {
-    try {
-      const data = await this.propfind(
-        this.absolutize(href),
-        "0",
-        `<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>`,
-      );
-      const etagRaw = getDavResponses(data)
-        .map(getFirstSuccessfulProp)
-        .find((prop) => prop?.getetag)?.getetag;
-      if (!etagRaw)
-        throw new CalDAVError("ETag not found in PROPFIND response.");
-      return String(etagRaw).replace(/^W\//, "");
-    } catch (error) {
-      if (error instanceof CalDAVError) throw error;
-      throw new CalDAVError(
-        `Failed to retrieve ETag for ${href}.`,
-        error instanceof HttpError ? error.status : undefined,
-        { cause: error },
-      );
-    }
+    return getProtocolETag(
+      href,
+      this.absolutize.bind(this),
+      this.propfind.bind(this),
+    );
   }
 
   /**
@@ -418,47 +332,7 @@ export class CalDAVClient {
    * @returns The CTag string.
    */
   public async getCtag(calendarUrl: string): Promise<string> {
-    const requestBody = `
-      <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">
-        <d:prop><cs:getctag/></d:prop>
-      </d:propfind>`;
-
-    const res = await this.httpClient.request({
-      method: "PROPFIND",
-      url: calendarUrl,
-      data: requestBody,
-      headers: {
-        Depth: "0", //"Content-Type": XML_CT
-      },
-      validateStatus: (s) => s === 207,
-    });
-
-    const ctag = getDavResponses(parseDavXml(res.data))
-      .map(getFirstSuccessfulProp)
-      .find((prop) => prop?.getctag)?.getctag;
-
-    return asString(ctag) ?? "";
-  }
-
-  private diffRefs(
-    remoteRefs: { href: string; etag: string }[],
-    localRefs: { href: string; etag: string }[],
-  ): { newItems: string[]; updatedItems: string[]; deletedItems: string[] } {
-    const localMap = new Map(localRefs.map((i) => [i.href, i.etag]));
-    const remoteMap = new Map(remoteRefs.map((i) => [i.href, i.etag]));
-
-    const newItems: string[] = [];
-    const updatedItems: string[] = [];
-    const deletedItems: string[] = [];
-
-    for (const { href, etag } of remoteRefs) {
-      if (!localMap.has(href)) newItems.push(href);
-      else if (localMap.get(href) !== etag) updatedItems.push(href);
-    }
-    for (const { href } of localRefs) {
-      if (!remoteMap.has(href)) deletedItems.push(href);
-    }
-    return { newItems, updatedItems, deletedItems };
+    return getProtocolCtag(calendarUrl, this.httpClient);
   }
 
   /**
@@ -484,8 +358,12 @@ export class CalDAVClient {
       };
     }
 
-    const remoteRefs = await this.getItemRefs(calendarUrl, "VEVENT");
-    const { newItems, updatedItems, deletedItems } = this.diffRefs(
+    const remoteRefs = await getProtocolItemRefs(
+      calendarUrl,
+      "VEVENT",
+      this.report.bind(this),
+    );
+    const { newItems, updatedItems, deletedItems } = diffRefs(
       remoteRefs,
       localEvents,
     );
@@ -522,8 +400,12 @@ export class CalDAVClient {
       };
     }
 
-    const remoteRefs = await this.getItemRefs(calendarUrl, "VTODO");
-    const { newItems, updatedItems, deletedItems } = this.diffRefs(
+    const remoteRefs = await getProtocolItemRefs(
+      calendarUrl,
+      "VTODO",
+      this.report.bind(this),
+    );
+    const { newItems, updatedItems, deletedItems } = diffRefs(
       remoteRefs,
       localTodos,
     );
@@ -541,399 +423,28 @@ export class CalDAVClient {
    * Internal Methods
    */
 
-  private async getComponents<T>(
-    calendarUrl: string,
-    component: "VEVENT" | "VTODO",
-    parseFn: (xml: string) => Promise<T[]>,
-    options?: { start?: Date; end?: Date; all?: boolean },
-  ): Promise<T[]> {
-    const now = new Date();
-    const defaultEnd = new Date(now.getTime() + 3 * 7 * 24 * 60 * 60 * 1000);
-    const { start = now, end = defaultEnd, all } = options || {};
-
-    const timeRangeFilter =
-      start && end && !all
-        ? `<c:comp-filter name="${component}">
-             <c:time-range start="${formatDate(start)}" end="${formatDate(
-               end,
-             )}"/>
-           </c:comp-filter>`
-        : `<c:comp-filter name="${component}"/>`;
-
-    const requestBody = `
-      <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-        <d:prop>
-          <d:getetag/>
-          <c:calendar-data/>
-        </d:prop>
-        <c:filter>
-          <c:comp-filter name="VCALENDAR">
-            ${timeRangeFilter}
-          </c:comp-filter>
-        </c:filter>
-      </c:calendar-query>`;
-
-    try {
-      const xml = await this.report(calendarUrl, requestBody, "1");
-      return await parseFn(xml);
-    } catch (error) {
-      throw new CalDAVError(
-        `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server.`,
-        error instanceof HttpError ? error.status : undefined,
-        { cause: error },
-      );
-    }
-  }
-
-  private buildICSData(
-    event: PartialBy<Event, "uid" | "etag" | "href">,
-    uid: string,
-  ): string {
-    const vcalendar = new ICAL.Component(["vcalendar", [], []]);
-    vcalendar.addPropertyWithValue("version", "2.0");
-    vcalendar.addPropertyWithValue("prodid", this.prodId);
-
-    const vevent = new ICAL.Component("vevent");
-    const e = new ICAL.Event(vevent);
-    e.uid = uid;
-    vevent.addPropertyWithValue(
-      "dtstamp",
-      ICAL.Time.fromJSDate(new Date(), true),
-    );
-
-    if (event.wholeDay) {
-      const startDateStr = event.start.toISOString().split("T")[0];
-      const endDateStr = event.end
-        ? event.end.toISOString().split("T")[0]
-        : startDateStr;
-
-      const endExclusive = new Date(endDateStr + "T00:00:00Z");
-      endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
-
-      e.startDate = ICAL.Time.fromDateString(startDateStr);
-      e.endDate = ICAL.Time.fromDateString(
-        endExclusive.toISOString().split("T")[0],
-      );
-    } else {
-      const start = ICAL.Time.fromJSDate(event.start, true);
-      const end = ICAL.Time.fromJSDate(event.end, true);
-
-      if (event.startTzid) {
-        const prop = vevent.addPropertyWithValue("dtstart", start);
-        prop.setParameter("tzid", event.startTzid);
-      } else {
-        e.startDate = start;
-      }
-
-      if (event.endTzid) {
-        const prop = vevent.addPropertyWithValue("dtend", end);
-        prop.setParameter("tzid", event.endTzid);
-      } else {
-        e.endDate = end;
-      }
-    }
-
-    e.summary = event.summary;
-    e.description = event.description || "";
-    e.location = event.location || "";
-
-    if (event.recurrenceRule) {
-      const r = event.recurrenceRule;
-      const rruleProps: Record<string, string | number> = {};
-      if (r.freq) rruleProps.FREQ = r.freq;
-      if (r.interval) rruleProps.INTERVAL = r.interval;
-      if (r.count) rruleProps.COUNT = r.count;
-      if (event.wholeDay && r.until) {
-        rruleProps.UNTIL = ICAL.Time.fromDateString(
-          r.until.toISOString().split("T")[0],
-        ).toString();
-      } else if (r.until) {
-        rruleProps.UNTIL = ICAL.Time.fromJSDate(r.until, true).toString();
-      }
-
-      if (r.byday) rruleProps.BYDAY = r.byday.join(",");
-      if (r.bymonthday) rruleProps.BYMONTHDAY = r.bymonthday.join(",");
-      if (r.bymonth) rruleProps.BYMONTH = r.bymonth.join(",");
-      vevent.addPropertyWithValue("rrule", rruleProps);
-    }
-
-    if (event.customFields) {
-      for (const [key, value] of Object.entries(event.customFields)) {
-        const values = Array.isArray(value) ? value : [value];
-        for (const v of values) {
-          vevent.addPropertyWithValue(key.toLowerCase(), v);
-        }
-      }
-    }
-
-    if (event.alarms) {
-      for (const alarm of event.alarms) {
-        const valarm = new ICAL.Component("valarm");
-        valarm.addPropertyWithValue("trigger", alarm.trigger);
-        valarm.addPropertyWithValue("action", alarm.action);
-
-        if (alarm.action === "DISPLAY" && alarm.description) {
-          valarm.addPropertyWithValue("description", alarm.description);
-        } else if (alarm.action === "EMAIL") {
-          if (alarm.summary)
-            valarm.addPropertyWithValue("summary", alarm.summary);
-          if (alarm.description)
-            valarm.addPropertyWithValue("description", alarm.description);
-          for (const attendee of alarm.attendees) {
-            valarm.addPropertyWithValue("attendee", attendee);
-          }
-        }
-        vevent.addSubcomponent(valarm);
-      }
-    }
-
-    vcalendar.addSubcomponent(vevent);
-    return vcalendar.toString();
-  }
-
-  private buildTodoICSData(
-    todo: PartialBy<Todo, "uid" | "etag" | "href">,
-    uid: string,
-  ): string {
-    const vcalendar = new ICAL.Component(["vcalendar", [], []]);
-    vcalendar.addPropertyWithValue("version", "2.0");
-    vcalendar.addPropertyWithValue("prodid", this.prodId);
-
-    const vtodo = new ICAL.Component("vtodo");
-    vtodo.addPropertyWithValue("uid", uid);
-    vtodo.addPropertyWithValue(
-      "dtstamp",
-      ICAL.Time.fromJSDate(new Date(), true),
-    );
-
-    if (todo.start)
-      vtodo.addPropertyWithValue(
-        "dtstart",
-        ICAL.Time.fromJSDate(todo.start, true),
-      );
-    if (todo.due)
-      vtodo.addPropertyWithValue("due", ICAL.Time.fromJSDate(todo.due, true));
-    if (todo.completed)
-      vtodo.addPropertyWithValue(
-        "completed",
-        ICAL.Time.fromJSDate(todo.completed, true),
-      );
-    vtodo.addPropertyWithValue("summary", todo.summary);
-    if (todo.description)
-      vtodo.addPropertyWithValue("description", todo.description);
-    if (todo.location) vtodo.addPropertyWithValue("location", todo.location);
-    if (todo.status) vtodo.addPropertyWithValue("status", todo.status);
-    if (todo.sortOrder !== undefined)
-      vtodo.addPropertyWithValue("X-APPLE-SORT-ORDER", todo.sortOrder);
-
-    if (todo.customFields) {
-      for (const [key, value] of Object.entries(todo.customFields)) {
-        const values = Array.isArray(value) ? value : [value];
-        for (const v of values) {
-          vtodo.addPropertyWithValue(key.toLowerCase(), v);
-        }
-      }
-    }
-
-    if (todo.alarms) {
-      for (const alarm of todo.alarms) {
-        const valarm = new ICAL.Component("valarm");
-        valarm.addPropertyWithValue("trigger", alarm.trigger);
-        valarm.addPropertyWithValue("action", alarm.action);
-        if (alarm.action === "DISPLAY" && alarm.description) {
-          valarm.addPropertyWithValue("description", alarm.description);
-        } else if (alarm.action === "EMAIL") {
-          if (alarm.summary)
-            valarm.addPropertyWithValue("summary", alarm.summary);
-          if (alarm.description)
-            valarm.addPropertyWithValue("description", alarm.description);
-          for (const attendee of alarm.attendees) {
-            valarm.addPropertyWithValue("attendee", attendee);
-          }
-        }
-        vtodo.addSubcomponent(valarm);
-      }
-    }
-
-    vcalendar.addSubcomponent(vtodo);
-    return vcalendar.toString();
-  }
-
-  private async createItem<
-    T extends { uid?: string; href?: string; etag?: string },
-  >(
-    calendarUrl: string,
-    data: PartialBy<T, "uid" | "href" | "etag">,
-    buildFn: (
-      data: PartialBy<T, "uid" | "href" | "etag">,
-      uid: string,
-    ) => string,
-    itemType: "event" | "todo",
-  ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
-    if (!calendarUrl)
-      throw new CalDAVError(
-        `Calendar URL is required to create a ${itemType}.`,
-      );
-
-    const base = normalizeSlashEnd(calendarUrl);
-    const uid = data.uid || uuidv4();
-    const href = `${base}/${uid}.ics`;
-    const ics = buildFn(data, uid);
-
-    try {
-      const response = await this.mkIcsPut(
-        href,
-        ics,
-        { "If-None-Match": "*" },
-        (s) => s === 201 || s === 204,
-      );
-      const etag = response.headers["etag"] || "";
-      const newCtag = await this.getCtag(calendarUrl);
-      return { uid, href: `${base}/${uid}.ics`, etag, newCtag };
-    } catch (error) {
-      if (error instanceof HttpError && error.status === 412) {
-        throw new CalDAVError(
-          `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid already exists.`,
-          412,
-          { cause: error },
-        );
-      }
-      throw new CalDAVError(
-        `Failed to create ${itemType}.`,
-        error instanceof HttpError ? error.status : undefined,
-        { cause: error },
-      );
-    }
-  }
-
-  private async updateItem<
-    T extends { uid: string; href: string; etag?: string },
-  >(
-    calendarUrl: string,
-    item: T,
-    buildFn: (item: T, uid: string) => string,
-    itemType: "event" | "todo",
-  ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
-    if (!item.uid || !item.href) {
-      throw new CalDAVError(
-        `Both 'uid' and 'href' are required to update a ${itemType}.`,
-      );
-    }
-
-    const ics = buildFn(item, item.uid);
-
-    const ifMatch = this.cleanEtag(item.etag);
-    const extraHeaders: Record<string, string> = {};
-    if (ifMatch && !this.isWeak(item.etag)) {
-      extraHeaders["If-Match"] = ifMatch;
-    }
-    try {
-      const response = await this.mkIcsPut(
-        this.absolutize(item.href),
-        ics,
-        extraHeaders,
-      );
-      const newEtag = response.headers["etag"] || "";
-      const newCtag = await this.getCtag(calendarUrl);
-      return { uid: item.uid, href: item.href, etag: newEtag, newCtag };
-    } catch (error) {
-      if (error instanceof HttpError && error.status === 412) {
-        throw new CalDAVError(
-          `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid does not match.`,
-          412,
-          { cause: error },
-        );
-      }
-      throw new CalDAVError(
-        `Failed to update ${itemType}.`,
-        error instanceof HttpError ? error.status : undefined,
-        { cause: error },
-      );
-    }
-  }
-
-  private async deleteItem(
-    calendarUrl: string,
-    uid: string,
-    itemType: "event" | "todo",
-    etag?: string,
-  ): Promise<void> {
-    const base = normalizeSlashEnd(calendarUrl);
-    const href = `${base}/${uid}.ics`;
-    try {
-      await this.httpClient.delete(href, {
-        headers: { "If-Match": etag ?? "*" },
-        validateStatus: (s) => s === 204 || s === 200,
-      });
-    } catch (error) {
-      throw new CalDAVError(
-        `Failed to delete ${itemType}.`,
-        error instanceof HttpError ? error.status : undefined,
-        { cause: error },
-      );
-    }
-  }
-
-  private async getItemRefs(
-    calendarUrl: string,
-    component: "VEVENT" | "VTODO",
-  ): Promise<{ href: string; etag: string }[]> {
-    const requestBody = `
-      <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-        <d:prop><d:getetag/></d:prop>
-        <c:filter>
-          <c:comp-filter name="VCALENDAR">
-            <c:comp-filter name="${component}"/>
-          </c:comp-filter>
-        </c:filter>
-      </c:calendar-query>`;
-
-    const data = await this.report(calendarUrl, requestBody, "1");
-
-    const refs: { href: string; etag: string }[] = [];
-    for (const response of getDavResponses(parseDavXml(data))) {
-      const href = response.href;
-      const etag = asString(getFirstSuccessfulProp(response)?.getetag);
-      if (href && etag) refs.push({ href, etag });
-    }
-    return refs;
-  }
-
   public async getEventsByHref(
     calendarUrl: string,
     hrefs: string[],
   ): Promise<Event[]> {
-    return this.getItemsByHref<Event>(calendarUrl, hrefs, parseEvents);
+    return getProtocolItemsByHref<Event>(
+      calendarUrl,
+      hrefs,
+      parseEvents,
+      this.report.bind(this),
+    );
   }
 
   public async getTodosByHref(
     calendarUrl: string,
     hrefs: string[],
   ): Promise<Todo[]> {
-    return this.getItemsByHref<Todo>(calendarUrl, hrefs, parseTodos);
-  }
-
-  private async getItemsByHref<T>(
-    calendarUrl: string,
-    hrefs: string[],
-    parseFn: (xml: string) => Promise<T[]>,
-  ): Promise<T[]> {
-    if (!hrefs.length) return [];
-
-    const filtered = hrefs.filter((h) => h.endsWith(".ics"));
-    if (!filtered.length) return [];
-
-    const requestBody = `
-      <c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-        <d:prop>
-          <d:getetag/>
-          <c:calendar-data/>
-        </d:prop>
-        ${filtered.map((h) => `<d:href>${h}</d:href>`).join("")}
-      </c:calendar-multiget>`;
-
-    const xml = await this.report(calendarUrl, requestBody, "1");
-    return await parseFn(xml);
+    return getProtocolItemsByHref<Todo>(
+      calendarUrl,
+      hrefs,
+      parseTodos,
+      this.report.bind(this),
+    );
   }
 
   /*
@@ -955,39 +466,6 @@ export class CalDAVClient {
     } catch {
       return path;
     }
-  }
-
-  private getHrefFromProp(parsed: unknown, propName: string): string | null {
-    const prop = getDavResponses(parsed)
-      .map(getFirstSuccessfulProp)
-      .find((candidate) => candidate?.[propName]);
-    const node = prop?.[propName];
-    if (!node) return null;
-
-    const direct = asString(node);
-    if (direct) return direct;
-
-    const nodeObject = asNode(node);
-    const href = asString(nodeObject?.href);
-    if (href) return href;
-
-    const maybe = toArray(node)[0];
-    const maybeDirect = asString(maybe);
-    if (maybeDirect) return maybeDirect;
-
-    const maybeHref = asString(asNode(maybe)?.href);
-    if (maybeHref) return maybeHref;
-
-    return null;
-  }
-
-  private isWeak(etag?: string): boolean {
-    return !!etag && (etag.startsWith('W/"') || etag.startsWith("W/"));
-  }
-
-  private cleanEtag(etag?: string): string | undefined {
-    if (!etag) return undefined;
-    return etag.replace(/^W\//, "").trim();
   }
 
   /*
@@ -1039,22 +517,4 @@ export class CalDAVClient {
     });
   }
 
-  private async followRedirectOnce(url: string): Promise<string> {
-    try {
-      const res = await this.httpClient.request({
-        method: "GET",
-        url,
-        redirect: "manual",
-        validateStatus: (s) => (s >= 200 && s < 300) || (s >= 300 && s < 400),
-      });
-      if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers["location"];
-        if (!loc) throw new Error(`Redirect without Location from ${url}`);
-        return new URL(loc, url).toString();
-      }
-      return url;
-    } catch {
-      return url;
-    }
-  }
 }

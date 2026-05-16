@@ -86,3 +86,28 @@ export const getFirstSuccessfulProp = (
 ): DavNode | undefined => {
   return getSuccessfulPropstats(response)[0]?.prop;
 };
+
+export const getHrefFromProp = (
+  parsed: unknown,
+  propName: string,
+): string | null => {
+  const prop = getDavResponses(parsed)
+    .map(getFirstSuccessfulProp)
+    .find((candidate) => candidate?.[propName]);
+  const node = prop?.[propName];
+  if (!node) return null;
+
+  const direct = asString(node);
+  if (direct) return direct;
+
+  const nodeObject = asNode(node);
+  const href = asString(nodeObject?.href);
+  if (href) return href;
+
+  const maybe = toArray(node)[0];
+  const maybeDirect = asString(maybe);
+  if (maybeDirect) return maybeDirect;
+
+  const maybeHref = asString(asNode(maybe)?.href);
+  return maybeHref ?? null;
+};
