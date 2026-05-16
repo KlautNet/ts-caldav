@@ -5,7 +5,7 @@
 
 > A lightweight, promise-based TypeScript CalDAV client for syncing calendar data in browser, Node.js, or React Native environments.
 
-**ts-caldav** helps you interact with CalDAV servers — allowing you to fetch calendars, manage events (including recurring events), and synchronize changes with minimal effort. Great for building calendar apps or integrations.
+**ts-caldav** helps you interact with CalDAV servers, allowing you to fetch calendars, manage events (including recurring events), and synchronize changes with minimal effort. Great for building calendar apps or integrations.
 
 ## Table of Contents
 
@@ -19,6 +19,7 @@
 - [Auth Notes](#auth-notes)
 - [Example: Sync Local Calendar](#example-use-case-sync-local-calendar)
 - [Limitations](#limitations)
+- [Roadmap](#roadmap)
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
@@ -74,7 +75,7 @@ const events = await client.getEvents(calendars[0].url);
 | **GMX**       | `https://caldav.gmx.net` |
 | **Fastmail**  | `https://caldav.fastmail.com` |
 
-> 💡 **Note:** Some servers may require enabling CalDAV support or generating app-specific passwords (especially iCloud and Fastmail).
+> **Note:** Some servers may require enabling CalDAV support or generating app-specific passwords, especially iCloud and Fastmail.
 
 ## API Documentation
 
@@ -155,7 +156,7 @@ await client.createEvent(calendar.url, {
 If `startTzid`/`endTzid` omitted, event stored in UTC.  
 To use full timezone definitions, include your own `VTIMEZONE` in raw iCal.
 
-> ⚠️ **ETag Notice:** Some CalDAV servers like Yahoo do not return an ETag header when creating events. Because ETag is required to safely update events, calling updateEvent on strict CalDAV servers may fail unless the ETag is manually retrieved via PROPFIND. You can use the getETag() function to manually fetch the ETag
+> **ETag notice:** Some CalDAV servers, such as Yahoo, do not return an ETag header when creating events. Because ETag is required to safely update events, calling `updateEvent` on strict CalDAV servers may fail unless the ETag is retrieved via PROPFIND. Use `getETag()` to fetch it manually.
 
 ### `deleteEvent(calendarUrl, eventUid, etag?)`
 
@@ -191,7 +192,7 @@ await client.updateEvent(calendarUrl, {
 });
 ```
 
-> ℹ️ Automatically strips weak validator prefixes (e.g., `W/"..."`).
+> Automatically strips weak validator prefixes (e.g., `W/"..."`).
 
 ## Todo API
 
@@ -282,13 +283,15 @@ if (result.changed) {
 
 ## Limitations
 
-- No WebDAV sync-token (uses getctag diffing)
-- Limited to VEVENT and VTODO components
+- No WebDAV sync-token support yet; synchronization currently uses `getctag` plus ETag diffing.
+- Component support is currently focused on `VEVENT` and `VTODO`.
 
 ## Roadmap
 
-- Mock requests to prevent flaiky tests
-- VCARD and VJOURNAL support
+- Add deterministic mocked request fixtures for common server response shapes.
+- Add WebDAV sync-token support with `getctag` diffing as a fallback.
+- Expand component support after the `VEVENT` and `VTODO` APIs are stable.
+- Continue hardening provider compatibility for Google, iCloud, Nextcloud, Fastmail, and Radicale.
 
 ## Development
 

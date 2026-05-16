@@ -1,4 +1,3 @@
-import { XMLParser } from "fast-xml-parser";
 import ICAL from "ical.js";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -14,23 +13,26 @@ import {
 } from "./models";
 import { formatDate } from "./utils/encode";
 import { parseCalendars, parseEvents, parseTodos } from "./utils/parser";
-import { first, normalizeSlashEnd } from "./utils/common";
+import { normalizeSlashEnd } from "./utils/common";
 import { CalDAVError } from "./errors";
 import HttpClient, { HttpError } from "./http-client";
+import {
+  asNode,
+  asString,
+  getDavResponses,
+  getFirstSuccessfulProp,
+  parseDavXml,
+  toArray,
+} from "./utils/dav";
 
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
 const ICS_CT = "text/calendar; charset=utf-8";
 //TODO: ADD Support for bypassing TLS BACK
-//TODO: Readd log requests
 export class CalDAVClient {
   private httpClient: HttpClient;
   private prodId: string;
-  private parser = new XMLParser({
-    removeNSPrefix: true,
-    ignoreAttributes: false,
-  });
 
   public calendarHome: string | null;
   public userPrincipal: string | null;
@@ -394,11 +396,9 @@ export class CalDAVClient {
         "0",
         `<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>`,
       );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed: any = data;
-      const etagRaw =
-        parsed?.multistatus?.response?.propstat?.prop?.getetag ??
-        parsed?.multistatus?.response?.[0]?.propstat?.prop?.getetag;
+      const etagRaw = getDavResponses(data)
+        .map(getFirstSuccessfulProp)
+        .find((prop) => prop?.getetag)?.getetag;
       if (!etagRaw)
         throw new CalDAVError("ETag not found in PROPFIND response.");
       return String(etagRaw).replace(/^W\//, "");
@@ -433,8 +433,11 @@ export class CalDAVClient {
       validateStatus: (s) => s === 207,
     });
 
-    const json = this.parser.parse(res.data);
-    return json?.multistatus?.response?.propstat?.prop?.getctag;
+    const ctag = getDavResponses(parseDavXml(res.data))
+      .map(getFirstSuccessfulProp)
+      .find((prop) => prop?.getctag)?.getctag;
+
+    return asString(ctag) ?? "";
   }
 
   private diffRefs(
@@ -886,16 +889,11 @@ export class CalDAVClient {
       </c:calendar-query>`;
 
     const data = await this.report(calendarUrl, requestBody, "1");
-    const jsonData = this.parser.parse(data);
-
-    const raw = jsonData?.multistatus?.response;
-    const responses = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
     const refs: { href: string; etag: string }[] = [];
-    for (const obj of responses) {
-      if (!obj || typeof obj !== "object") continue;
-      const href = obj["href"];
-      const etag = obj?.propstat?.prop?.getetag;
+    for (const response of getDavResponses(parseDavXml(data))) {
+      const href = response.href;
+      const etag = asString(getFirstSuccessfulProp(response)?.getetag);
       if (href && etag) refs.push({ href, etag });
     }
     return refs;
@@ -959,21 +957,26 @@ export class CalDAVClient {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private getHrefFromProp(parsed: any, propName: string): string | null {
-    const ms = parsed?.multistatus;
-    const resp = first(ms?.response);
-    const pstat = first(resp?.propstat);
-    const prop = pstat?.prop;
+  private getHrefFromProp(parsed: unknown, propName: string): string | null {
+    const prop = getDavResponses(parsed)
+      .map(getFirstSuccessfulProp)
+      .find((candidate) => candidate?.[propName]);
     const node = prop?.[propName];
     if (!node) return null;
 
-    if (typeof node === "string") return node;
-    if (typeof node?.href === "string") return node.href;
+    const direct = asString(node);
+    if (direct) return direct;
 
-    const maybe = first(node);
-    if (typeof maybe === "string") return maybe;
-    if (maybe && typeof maybe.href === "string") return maybe.href;
+    const nodeObject = asNode(node);
+    const href = asString(nodeObject?.href);
+    if (href) return href;
+
+    const maybe = toArray(node)[0];
+    const maybeDirect = asString(maybe);
+    if (maybeDirect) return maybeDirect;
+
+    const maybeHref = asString(asNode(maybe)?.href);
+    if (maybeHref) return maybeHref;
 
     return null;
   }
@@ -1006,7 +1009,7 @@ export class CalDAVClient {
       },
       validateStatus: (s) => s === 207 || s === 200,
     });
-    return this.parser.parse(res.data);
+    return parseDavXml(res.data);
   }
 
   private async report(

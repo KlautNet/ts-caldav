@@ -1,4 +1,3 @@
-import { XMLParser } from "fast-xml-parser";
 import {
   Alarm,
   Calendar,
@@ -12,6 +11,14 @@ import {
   TodoStatus,
 } from "../models";
 import ICAL from "ical.js";
+import {
+  asNode,
+  asString,
+  getDavResponses,
+  getFirstSuccessfulProp,
+  parseDavXml,
+  toArray,
+} from "./dav";
 
 const normalizeParam = (
   value: string | string[] | undefined,
@@ -76,48 +83,28 @@ const parseRecurrence = (recur: ICAL.Recur): RecurrenceRule => {
   };
 };
 
-const toArray = <T>(value: T | T[] | undefined): T[] =>
-  Array.isArray(value) ? value : value ? [value] : [];
-
 export const parseCalendars = async (
   responseData: string,
   baseUrl?: string,
 ): Promise<Calendar[]> => {
   const calendars: Calendar[] = [];
-
-  const parser = new XMLParser({
-    removeNSPrefix: true,
-    ignoreAttributes: false,
-    attributeNamePrefix: "",
-  });
-
-  const jsonData = parser.parse(responseData);
-  const responses = toArray(jsonData?.multistatus?.response);
+  const responses = getDavResponses(parseDavXml(responseData));
 
   for (const res of responses) {
-    const propstats = toArray(res?.propstat);
+    const prop = getFirstSuccessfulProp(res);
+    if (!prop) continue;
 
-    const okPropstat = propstats.find(
-      (p) =>
-        typeof p?.status === "string" &&
-        p.status.toLowerCase().includes("200 ok"),
-    );
-    if (!okPropstat) continue;
-
-    const prop = okPropstat.prop;
-    const compArray = toArray(prop?.["supported-calendar-component-set"]?.comp);
+    const componentSet = asNode(prop["supported-calendar-component-set"]);
+    const compArray = toArray(componentSet?.comp);
 
     const supportedComponents = compArray
-      .map((c) => c.name)
-      .filter((name): name is SupportedComponent =>
-        [
-          "VEVENT",
-          "VTODO",
-          "VJOURNAL",
-          "VFREEBUSY",
-          "VTIMEZONE",
-          "VAVAILABILITY",
-        ].includes(name),
+      .map((c) => asString(asNode(c)?.name))
+      .filter(
+        (name): name is SupportedComponent =>
+          typeof name === "string" &&
+          ["VEVENT", "VTODO", "VJOURNAL", "VFREEBUSY", "VTIMEZONE"].includes(
+            name,
+          ),
       );
 
     if (
@@ -127,11 +114,11 @@ export const parseCalendars = async (
       continue;
 
     calendars.push({
-      displayName: prop?.displayname ?? "",
-      url: baseUrl ? new URL(res.href, baseUrl).toString() : res.href,
-      ctag: prop?.getctag,
+      displayName: asString(prop.displayname) ?? "",
+      url: baseUrl && res.href ? new URL(res.href, baseUrl).toString() : res.href ?? "",
+      ctag: asString(prop.getctag),
       supportedComponents,
-      color: prop?.["calendar-color"],
+      color: asString(prop["calendar-color"]),
     });
   }
 
@@ -158,18 +145,13 @@ export const parseEvents = async (
   baseUrl?: string,
 ): Promise<Event[]> => {
   const events: Event[] = [];
-  const parser = new XMLParser({ removeNSPrefix: true });
-  const jsonData = parser.parse(responseData);
-  let response = jsonData["multistatus"]?.["response"];
-  if (!response) return events;
+  const responses = getDavResponses(parseDavXml(responseData));
 
-  if (!Array.isArray(response)) response = [response];
-
-  for (const obj of response) {
-    const eventData = obj["propstat"]?.["prop"];
+  for (const response of responses) {
+    const eventData = getFirstSuccessfulProp(response);
     if (!eventData) continue;
 
-    const rawCalendarData = eventData["calendar-data"];
+    const rawCalendarData = asString(eventData["calendar-data"]);
     if (!rawCalendarData) continue;
 
     const cleanedCalendarData = rawCalendarData.replace(/&#13;/g, "\r");
@@ -259,10 +241,11 @@ export const parseEvents = async (
         description: icalEvent.description || undefined,
         location: icalEvent.location || undefined,
         status: status || undefined,
-        etag: eventData["getetag"] || "",
-        href: baseUrl
-          ? new URL(obj["href"], baseUrl).toString()
-          : obj["href"],
+        etag: asString(eventData["getetag"]) || "",
+        href:
+          baseUrl && response.href
+            ? new URL(response.href, baseUrl).toString()
+            : response.href ?? "",
         wholeDay: isWholeDay,
         recurrenceRule,
         startTzid,
@@ -297,18 +280,13 @@ export const parseTodos = async (
   baseUrl?: string,
 ): Promise<Todo[]> => {
   const todos: Todo[] = [];
-  const parser = new XMLParser({ removeNSPrefix: true });
-  const jsonData = parser.parse(responseData);
-  let response = jsonData["multistatus"]?.["response"];
-  if (!response) return todos;
+  const responses = getDavResponses(parseDavXml(responseData));
 
-  if (!Array.isArray(response)) response = [response];
-
-  for (const obj of response) {
-    const todoData = obj["propstat"]?.["prop"];
+  for (const response of responses) {
+    const todoData = getFirstSuccessfulProp(response);
     if (!todoData) continue;
 
-    const rawCalendarData = todoData["calendar-data"];
+    const rawCalendarData = asString(todoData["calendar-data"]);
     if (!rawCalendarData) continue;
 
     const cleanedCalendarData = rawCalendarData.replace(/&#13;/g, "\r\n");
@@ -406,10 +384,11 @@ export const parseTodos = async (
         status,
         description,
         location,
-        etag: todoData["getetag"] || "",
-        href: baseUrl
-          ? new URL(obj["href"], baseUrl).toString()
-          : obj["href"],
+        etag: asString(todoData["getetag"]) || "",
+        href:
+          baseUrl && response.href
+            ? new URL(response.href, baseUrl).toString()
+            : response.href ?? "",
         alarms,
         sortOrder,
         ...(Object.keys(customFields).length > 0 ? { customFields } : {}),

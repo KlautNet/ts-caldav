@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseEvents, parseTodos } from "../../src/utils/parser";
+import { parseCalendars, parseEvents, parseTodos } from "../../src/utils/parser";
 
 const wrapXml = (ics: string) =>
   `<?xml version="1.0" encoding="UTF-8"?>
@@ -190,6 +190,66 @@ describe("parseEvents – typed fields excluded from customFields", () => {
   test("event with only known fields has no customFields", async () => {
     const [event] = await parseEvents(wrapXml(BASE_EVENT));
     expect(event.customFields).toBeUndefined();
+  });
+});
+
+describe("DAV response shape parsing", () => {
+  test("parseEvents reads the successful propstat when error propstats are present", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <response>
+    <href>/dav/calendars/test/item.ics</href>
+    <propstat>
+      <prop><calendar-data /></prop>
+      <status>HTTP/1.1 404 Not Found</status>
+    </propstat>
+    <propstat>
+      <prop>
+        <getetag>"abc123"</getetag>
+        <calendar-data xmlns="urn:ietf:params:xml:ns:caldav">${BASE_EVENT}</calendar-data>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+</multistatus>`;
+
+    const [event] = await parseEvents(xml);
+
+    expect(event.uid).toBe("event-uid-1");
+    expect(event.etag).toBe('"abc123"');
+  });
+
+  test("parseCalendars handles multiple response nodes", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <response>
+    <href>/dav/calendars/test/events/</href>
+    <propstat>
+      <prop>
+        <displayname>Events</displayname>
+        <C:supported-calendar-component-set><C:comp name="VEVENT"/></C:supported-calendar-component-set>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/dav/calendars/test/tasks/</href>
+    <propstat>
+      <prop>
+        <displayname>Tasks</displayname>
+        <C:supported-calendar-component-set><C:comp name="VTODO"/></C:supported-calendar-component-set>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+</multistatus>`;
+
+    const calendars = await parseCalendars(xml);
+
+    expect(calendars.map((calendar) => calendar.displayName)).toEqual([
+      "Events",
+      "Tasks",
+    ]);
   });
 });
 
