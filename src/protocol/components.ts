@@ -27,11 +27,11 @@ export const getComponents = async <T>(
   component: ComponentType,
   parseFn: (xml: string) => Promise<T[]>,
   report: ReportFn,
-  options?: { start?: Date; end?: Date; all?: boolean },
+  options?: { start?: Date; end?: Date; all?: boolean; expand?: boolean },
 ): Promise<T[]> => {
   const now = new Date();
   const defaultEnd = new Date(now.getTime() + 3 * 7 * 24 * 60 * 60 * 1000);
-  const { start = now, end = defaultEnd, all } = options || {};
+  const { start = now, end = defaultEnd, all, expand } = options || {};
 
   const timeRangeFilter =
     start && end && !all
@@ -40,11 +40,22 @@ export const getComponents = async <T>(
          </c:comp-filter>`
       : `<c:comp-filter name="${component}"/>`;
 
+  // RFC 4791 §9.6.5: <C:expand> is only valid inside a time-bounded query.
+  // When enabled, the server returns the individual occurrences of a
+  // recurring component (without RRULE/RDATE/EXRULE/EXDATE) instead of the
+  // master VEVENT/VTODO with its recurrence rule.
+  const calendarData =
+    expand && start && end && !all
+      ? `<c:calendar-data>
+           <c:expand start="${formatDate(start)}" end="${formatDate(end)}"/>
+         </c:calendar-data>`
+      : `<c:calendar-data/>`;
+
   const requestBody = `
     <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
       <d:prop>
         <d:getetag/>
-        <c:calendar-data/>
+        ${calendarData}
       </d:prop>
       <c:filter>
         <c:comp-filter name="VCALENDAR">

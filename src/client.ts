@@ -151,11 +151,17 @@ export class CalDAVClient {
    * Fetches all events from a specific calendar.
    * @param calendarUrl - The URL of the calendar to fetch events from.
    * @param options - Optional parameters for fetching events.
+   * @param options.expand - When `true` and a time range is set, instructs the
+   *   server to expand recurring events into individual occurrences (RFC 4791
+   *   §9.6.5). The returned events will not contain `recurrenceRule`; each
+   *   instance has its own `start`/`end`. Without this flag, recurring events
+   *   are returned as their master VEVENT with `recurrenceRule` and the caller
+   *   is responsible for expanding occurrences.
    * @returns An array of Event objects.
    */
   public async getEvents(
     calendarUrl: string,
-    options?: { start?: Date; end?: Date; all?: boolean },
+    options?: { start?: Date; end?: Date; all?: boolean; expand?: boolean },
   ): Promise<Event[]> {
     return getProtocolComponents<Event>(
       calendarUrl,
@@ -228,12 +234,14 @@ export class CalDAVClient {
   /**
    * Fetches all todos from a specific calendar.
    * @param calendarUrl - The URL of the calendar to fetch todos from.
-   * @param options - Optional parameters for fetching todos.
+   * @param options - Optional parameters for fetching todos. `expand` is
+   *   ignored unless `all` is overridden to `false`, since the default for
+   *   todos is to return all components irrespective of time bounds.
    * @returns An array of Todo objects.
    */
   public async getTodos(
     calendarUrl: string,
-    options?: { start?: Date; end?: Date; all?: boolean },
+    options?: { start?: Date; end?: Date; all?: boolean; expand?: boolean },
   ): Promise<Todo[]> {
     return getProtocolComponents<Todo>(
       calendarUrl,
