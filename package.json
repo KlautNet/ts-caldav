@@ -31,7 +31,8 @@
     "test:watch": "vitest tests/unit",
     "lint": "eslint",
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
   },
   "keywords": [
     "caldav",
