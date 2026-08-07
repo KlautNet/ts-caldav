@@ -103,7 +103,17 @@ export const updateItem = async <
   try {
     const response = await mkIcsPut(absolutize(item.href), ics, extraHeaders);
     const newEtag = response.headers["etag"] || "";
-    const newCtag = await getCtag(calendarUrl);
+
+    // The PUT has already committed at this point. CTag is optional sync
+    // metadata and is not supported consistently by CalDAV servers, so a
+    // failed follow-up lookup must not turn a successful create into an error.
+    let newCtag = "";
+    try {
+      newCtag = await getCtag(calendarUrl);
+    } catch {
+      // Keep the successful write result; callers can explicitly call getCtag
+      // if they require a fresh value and want to handle that error separately.
+    }
     return { uid: item.uid, href: item.href, etag: newEtag, newCtag };
   } catch (error) {
     if (error instanceof CalDAVError && error.status === 412) {
