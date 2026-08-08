@@ -32,7 +32,7 @@
     "lint": "eslint",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "prepare": "npm run build"
+    "prepare": "tsup"
   },
   "keywords": [
     "caldav",

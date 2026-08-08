@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { createItem } from "../../src/protocol/crud";
+import { createItem, updateItem } from "../../src/protocol/crud";
 
 const calendarUrl = "https://example.test/calendars/user/default/";
 const data = { uid: "event-1" };
@@ -50,6 +50,65 @@ describe("createItem", () => {
       uid: "event-1",
       href: `${calendarUrl}event-1.ics`,
       etag: "",
+      newCtag: "",
+    });
+  });
+});
+
+describe("updateItem", () => {
+  const item = { uid: "event-1", href: `${calendarUrl}event-1.ics` };
+  const absolutize = (urlOrPath: string) => urlOrPath;
+
+  test("returns the refreshed CTag when the lookup succeeds", async () => {
+    const put = vi.fn(async () => ({
+      status: 204,
+      headers: { etag: '"event-etag-2"' },
+      data: "",
+      url: item.href,
+    }));
+
+    await expect(
+      updateItem(
+        calendarUrl,
+        item,
+        build,
+        "event",
+        put,
+        async () => "ctag-2",
+        absolutize,
+      ),
+    ).resolves.toEqual({
+      uid: "event-1",
+      href: item.href,
+      etag: '"event-etag-2"',
+      newCtag: "ctag-2",
+    });
+  });
+
+  test("does not reject a committed PUT when the CTag lookup fails", async () => {
+    const put = vi.fn(async () => ({
+      status: 204,
+      headers: { etag: '"event-etag-2"' },
+      data: "",
+      url: item.href,
+    }));
+
+    await expect(
+      updateItem(
+        calendarUrl,
+        item,
+        build,
+        "event",
+        put,
+        async () => {
+          throw new Error("getctag is not supported");
+        },
+        absolutize,
+      ),
+    ).resolves.toEqual({
+      uid: "event-1",
+      href: item.href,
+      etag: '"event-etag-2"',
       newCtag: "",
     });
   });
