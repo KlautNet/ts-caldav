@@ -7,6 +7,7 @@ export type {
   CalDAVClientCache,
   CalDAVOptions,
   Calendar,
+  DeleteTarget,
   Event,
   EventRef,
   EventStatus,

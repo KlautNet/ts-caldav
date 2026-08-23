@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { CalDAVError } from "../errors";
+import { DeleteTarget } from "../models";
 import HttpClient, { HttpResponse } from "../http-client";
 import { normalizeSlashEnd } from "../utils/common";
 import { PartialBy } from "./types";
@@ -132,19 +133,73 @@ export const updateItem = async <
 
 export const deleteItem = async (
   calendarUrl: string,
-  uid: string,
+  target: DeleteTarget,
   itemType: "event" | "todo",
   httpClient: Pick<HttpClient, "delete">,
   etag?: string,
+  deps?: {
+    absolutize?: (urlOrPath: string) => string;
+    resolveHrefByUid?: (
+      calendarUrl: string,
+      uid: string,
+    ) => Promise<string | undefined>;
+  },
 ): Promise<void> => {
+  const ref = typeof target === "string" ? { uid: target } : target;
+  if (!ref.href && !ref.uid) {
+    throw new CalDAVError(
+      `Either 'uid' or 'href' is required to delete a ${itemType}.`,
+    );
+  }
+
+  const absolutize = deps?.absolutize ?? ((urlOrPath: string) => urlOrPath);
   const base = normalizeSlashEnd(calendarUrl);
-  const href = `${base}/${uid}.ics`;
-  try {
-    await httpClient.delete(href, {
-      headers: { "If-Match": etag ?? "*" },
+
+  // A known href always wins: `${base}/${uid}.ics` is only ever a guess, and it
+  // is wrong for every item the server named itself (Nextcloud's web UI, for
+  // one, uses an unrelated filename).
+  const href = ref.href ? absolutize(ref.href) : `${base}/${ref.uid}.ics`;
+
+  // Weak ETags are not usable as an If-Match validator (RFC 9110 §13.1.1), so
+  // fall back to "*" instead of letting the server reject the request with 412.
+  const validator = etag ?? ref.etag;
+  const ifMatch =
+    validator && !isWeak(validator) ? (cleanEtag(validator) as string) : "*";
+
+  const send = (url: string) =>
+    httpClient.delete(url, {
+      headers: { "If-Match": ifMatch },
       validateStatus: (s) => s === 204 || s === 200,
     });
+
+  try {
+    await send(href);
   } catch (error) {
+    const guessed404 =
+      !ref.href &&
+      ref.uid &&
+      error instanceof CalDAVError &&
+      error.status === 404 &&
+      deps?.resolveHrefByUid;
+
+    if (guessed404) {
+      const resolved = await deps!
+        .resolveHrefByUid!(calendarUrl, ref.uid!)
+        .catch(() => undefined);
+      if (resolved && absolutize(resolved) !== href) {
+        try {
+          await send(absolutize(resolved));
+          return;
+        } catch (retryError) {
+          throw new CalDAVError(
+            `Failed to delete ${itemType}.`,
+            retryError instanceof CalDAVError ? retryError.status : undefined,
+            { cause: retryError },
+          );
+        }
+      }
+    }
+
     throw new CalDAVError(
       `Failed to delete ${itemType}.`,
       error instanceof CalDAVError ? error.status : undefined,

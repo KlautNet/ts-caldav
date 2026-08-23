@@ -2,6 +2,7 @@ import {
   CalDAVClientCache,
   CalDAVOptions,
   Calendar,
+  DeleteTarget,
   Event,
   EventRef,
   SyncChangesResult,
@@ -21,6 +22,7 @@ import {
   getComponents as getProtocolComponents,
   getCtag as getProtocolCtag,
   getETag as getProtocolETag,
+  getHrefByUid as getProtocolHrefByUid,
   getItemRefs as getProtocolItemRefs,
   getItemsByHref as getProtocolItemsByHref,
 } from "./protocol/components";
@@ -212,17 +214,32 @@ export class CalDAVClient {
     );
   }
 
+  /**
+   * Deletes an event from the specified calendar.
+   * @param calendarUrl - The URL of the calendar containing the event.
+   * @param event - The event to delete. Prefer passing the event itself (or any
+   *   object with its `href`), since a server may store it under a filename
+   *   unrelated to its UID. A bare UID string still works, in which case the
+   *   href is looked up when the UID-derived one does not exist.
+   * @param etag - Optional ETag for concurrency control. Defaults to the ETag
+   *   on the passed event, when there is one.
+   */
   public async deleteEvent(
     calendarUrl: string,
-    eventUid: string,
+    event: DeleteTarget,
     etag?: string,
   ): Promise<void> {
     return deleteProtocolItem(
       calendarUrl,
-      eventUid,
+      event,
       "event",
       this.httpClient,
       etag,
+      {
+        absolutize: this.absolutize.bind(this),
+        resolveHrefByUid: (url, uid) =>
+          getProtocolHrefByUid(url, "VEVENT", uid, this.report.bind(this)),
+      },
     );
   }
 
@@ -298,20 +315,29 @@ export class CalDAVClient {
   /**
    * Deletes a todo from the specified calendar.
    * @param calendarUrl - The URL of the calendar containing the todo.
-   * @param todoUid - The UID of the todo to delete.
-   * @param etag - Optional ETag for concurrency control.
+   * @param todo - The todo to delete. Prefer passing the todo itself (or any
+   *   object with its `href`), since a server may store it under a filename
+   *   unrelated to its UID. A bare UID string still works, in which case the
+   *   href is looked up when the UID-derived one does not exist.
+   * @param etag - Optional ETag for concurrency control. Defaults to the ETag
+   *   on the passed todo, when there is one.
    */
   public async deleteTodo(
     calendarUrl: string,
-    todoUid: string,
+    todo: DeleteTarget,
     etag?: string,
   ): Promise<void> {
     return deleteProtocolItem(
       calendarUrl,
-      todoUid,
+      todo,
       "todo",
       this.httpClient,
       etag,
+      {
+        absolutize: this.absolutize.bind(this),
+        resolveHrefByUid: (url, uid) =>
+          getProtocolHrefByUid(url, "VTODO", uid, this.report.bind(this)),
+      },
     );
   }
 

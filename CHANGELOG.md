@@ -4,6 +4,32 @@ All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/). While the package is pre-`1.0`,
 minor releases may carry notable internal changes worth reviewing.
 
+## 0.5.0
+
+### Fixed
+
+- **`Event.status` is now written to the `VEVENT`** (#26). `createEvent` and
+  `updateEvent` silently dropped the field, so a status set on an event never
+  reached the server (`getEvents` then read it back as `undefined`). The VTODO
+  builder already emitted `STATUS`; the VEVENT builder now does too.
+- **`deleteEvent` / `deleteTodo` no longer fail on items the server named
+  itself** (#25). The delete URL was always built as `<calendar>/<uid>.ics`,
+  which 404s for every item stored under a server-chosen filename — Nextcloud's
+  web UI, for one, uses a filename unrelated to the event UID. The item's own
+  `href` is now used when available, and a UID-only call that 404s falls back to
+  looking the href up by UID.
+- **A weak ETag is no longer sent as an `If-Match` validator on delete** (#25),
+  which servers reject with `412`. This matches how `updateEvent` / `updateTodo`
+  already handled weak ETags.
+
+### Changed
+
+- `deleteEvent(calendarUrl, event, etag?)` and `deleteTodo(calendarUrl, todo,
+  etag?)` accept the item itself (or any object with `href`/`uid`/`etag`) in
+  addition to a bare UID string, and default the `If-Match` validator to the
+  passed item's ETag. Existing UID-string calls keep working. The new
+  `DeleteTarget` type is exported from the package entry point.
+
 ## 0.4.0
 
 ### Changed

@@ -93,6 +93,15 @@ export interface Event {
 
 export type TodoRef = EventRef;
 
+/**
+ * Identifies an item to delete. A plain string is treated as a UID; passing the
+ * item itself (or any object carrying its `href`) is preferred, since a server
+ * is free to store an item under a filename unrelated to its UID.
+ */
+export type DeleteTarget =
+  | string
+  | { uid?: string; href?: string; etag?: string };
+
 export interface VTimezone {
   tzid: string;
   raw: string;

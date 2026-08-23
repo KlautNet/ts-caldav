@@ -152,6 +152,46 @@ export const getItemRefs = async (
   return refs;
 };
 
+const escapeXmlText = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+/**
+ * Looks up the href a server stores a component under, given its UID. Needed
+ * because an item's filename is server-chosen and frequently unrelated to its
+ * UID, so it cannot be derived from the UID alone.
+ */
+export const getHrefByUid = async (
+  calendarUrl: string,
+  component: ComponentType,
+  uid: string,
+  report: ReportFn,
+): Promise<string | undefined> => {
+  const requestBody = `
+    <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+      <d:prop><d:getetag/></d:prop>
+      <c:filter>
+        <c:comp-filter name="VCALENDAR">
+          <c:comp-filter name="${component}">
+            <c:prop-filter name="UID">
+              <c:text-match collation="i;octet">${escapeXmlText(uid)}</c:text-match>
+            </c:prop-filter>
+          </c:comp-filter>
+        </c:comp-filter>
+      </c:filter>
+    </c:calendar-query>`;
+
+  const data = await report(calendarUrl, requestBody, "1");
+
+  for (const response of getDavResponses(parseDavXml(data))) {
+    const href = asString(response.href);
+    if (href) return href;
+  }
+  return undefined;
+};
+
 export const getItemsByHref = async <T>(
   calendarUrl: string,
   hrefs: string[],

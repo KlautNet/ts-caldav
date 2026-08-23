@@ -213,9 +213,20 @@ To use full timezone definitions, include your own `VTIMEZONE` in raw iCal.
 
 > **ETag notice:** Some CalDAV servers, such as Yahoo, do not return an ETag header when creating events. Because ETag is required to safely update events, calling `updateEvent` on strict CalDAV servers may fail unless the ETag is retrieved via PROPFIND. Use `getETag()` to fetch it manually.
 
-### `deleteEvent(calendarUrl, eventUid, etag?)`
+### `deleteEvent(calendarUrl, event, etag?)`
 
-Delete by UID, optionally using ETag for safe deletion.
+Deletes an event, optionally using an ETag for safe deletion.
+
+`event` may be the event itself (or any object with an `href`), or a bare UID
+string. Prefer passing the event: servers such as Nextcloud store an item under
+a filename unrelated to its UID, so a UID alone cannot be turned into the item's
+URL. When only a UID is given and no item exists at `<calendar>/<uid>.ics`, the
+href is looked up by UID before deleting.
+
+```ts
+const [event] = await client.getEvents(calendarUrl);
+await client.deleteEvent(calendarUrl, event); // uses event.href and event.etag
+```
 
 ### `syncChanges(calendarUrl, previousCtag, localEventRefs)`
 
@@ -275,9 +286,10 @@ await client.createTodo(calendar.url, {
 
 Updates an existing todo.
 
-### `deleteTodo(calendarUrl: string, todoUid, etag?)`
+### `deleteTodo(calendarUrl: string, todo, etag?)`
 
-Deletes a todo by UID.
+Deletes a todo. Like `deleteEvent`, `todo` may be the todo itself (preferred, so
+its `href` and `etag` are used) or a bare UID string.
 
 ### `syncTodoChanges(calendarUrl, previousCtag, localTodoRefs)`
 
