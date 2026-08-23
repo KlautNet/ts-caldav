@@ -123,6 +123,20 @@ describe("buildICSData – core fields", () => {
   });
 });
 
+// ── VEVENT – status ───────────────────────────────────────────────────────────
+
+describe("buildICSData – status", () => {
+  test("STATUS is emitted when set", async () => {
+    await makeClient().updateEvent(CAL, { ...BASE_EVENT, status: "CONFIRMED" });
+    expect(vevent().getFirstPropertyValue("status")).toBe("CONFIRMED");
+  });
+
+  test("STATUS is omitted when unset", async () => {
+    await makeClient().updateEvent(CAL, { ...BASE_EVENT });
+    expect(vevent().getFirstProperty("status")).toBeNull();
+  });
+});
+
 // ── VEVENT – custom fields ────────────────────────────────────────────────────
 
 describe("buildICSData – custom fields", () => {

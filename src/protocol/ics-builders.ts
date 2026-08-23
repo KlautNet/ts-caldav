@@ -91,6 +91,7 @@ export const buildEventICSData = (
   e.summary = event.summary;
   e.description = event.description || "";
   e.location = event.location || "";
+  if (event.status) vevent.addPropertyWithValue("status", event.status);
 
   if (event.recurrenceRule) {
     const r = event.recurrenceRule;
