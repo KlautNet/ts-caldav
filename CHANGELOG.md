@@ -4,7 +4,7 @@ All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/). While the package is pre-`1.0`,
 minor releases may carry notable internal changes worth reviewing.
 
-## 0.5.0
+## 0.4.3
 
 ### Added
 
@@ -16,12 +16,19 @@ minor releases may carry notable internal changes worth reviewing.
   the resource, amend it and write it back, so existing overrides survive; a
   `thisAndFuture` cut at the first occurrence deletes the series outright and
   reports `seriesDeleted`.
-- **`RECURRENCE-ID`, `EXDATE` and `RDATE` are parsed and written.** `Event`
-  gains `recurrenceId` (set on an override, carrying the original start of the
-  occurrence it replaces), plus `exdates` and `rdates` on the master. They
-  previously landed in `customFields` on read and were dropped on write.
+- **`RECURRENCE-ID`, `EXDATE` and `RDATE` are written.** `Event` gains
+  `recurrenceId` (set on an override, carrying the original start of the
+  occurrence it replaces), plus `exdates` and `rdates` on the master. They were
+  previously dropped on write.
 - New public types: `OccurrenceScope`, `OccurrenceChanges`, `OccurrenceRef` and
   `OccurrenceResult`.
+
+### Changed
+
+- **`RECURRENCE-ID`, `EXDATE` and `RDATE` are no longer returned in
+  `customFields`.** `getEvents` now parses them into `Event.recurrenceId`,
+  `Event.exdates` and `Event.rdates` as `Date` values. Code that read them from
+  `customFields` needs to switch to the new fields.
 
 ### Fixed
 
@@ -41,6 +48,10 @@ minor releases may carry notable internal changes worth reviewing.
   `RECURRENCE-ID`, `EXDATE` and `RDATE` now resolve through the same `Intl`
   data, and `updateOccurrence` / `deleteOccurrence` match occurrences the same
   way.
+## 0.4.2
+
+### Fixed
+
 - **`Event.status` is now written to the `VEVENT`** (#26). `createEvent` and
   `updateEvent` silently dropped the field, so a status set on an event never
   reached the server (`getEvents` then read it back as `undefined`). The VTODO
