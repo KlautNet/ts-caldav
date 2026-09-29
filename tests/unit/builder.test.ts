@@ -1,6 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ICAL from "ical.js";
 import { CalDAVClient } from "../../src/client";
+import { parseEvents } from "../../src/utils/parser";
+
+const wrapCalendarData = (ics: string) =>
+  `<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <response>
+    <href>/calendars/u/default/evt-1.ics</href>
+    <propstat>
+      <prop>
+        <getetag>"e1"</getetag>
+        <C:calendar-data>${ics}</C:calendar-data>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+</multistatus>`;
 
 const CTAG_RESPONSE = `<multistatus xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/">
   <response><propstat><prop><cs:getctag>ctag-1</cs:getctag></prop></propstat></response>
@@ -121,6 +137,75 @@ describe("buildICSData – core fields", () => {
       "Europe/Berlin",
     );
   });
+
+  test("a TZID value is the wall-clock time in that zone, not UTC with a Z (#27)", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      start: new Date("2026-09-28T11:00:00Z"),
+      end: new Date("2026-09-28T12:00:00Z"),
+      startTzid: "Europe/Vienna",
+      endTzid: "Europe/Vienna",
+    });
+    const lines = capturedICS.split(/\r?\n/);
+    expect(lines).toContain("DTSTART;TZID=Europe/Vienna:20260928T130000");
+    expect(lines).toContain("DTEND;TZID=Europe/Vienna:20260928T140000");
+  });
+
+  test("a TZID value follows the zone's winter offset", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      start: new Date("2026-01-28T11:00:00Z"),
+      end: new Date("2026-01-28T12:00:00Z"),
+      startTzid: "Europe/Vienna",
+      endTzid: "America/New_York",
+    });
+    const lines = capturedICS.split(/\r?\n/);
+    expect(lines).toContain("DTSTART;TZID=Europe/Vienna:20260128T120000");
+    expect(lines).toContain("DTEND;TZID=America/New_York:20260128T070000");
+  });
+
+  test("an unknown TZID falls back to plain UTC without the parameter", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      start: new Date("2026-09-28T11:00:00Z"),
+      end: new Date("2026-09-28T12:00:00Z"),
+      startTzid: "W. Europe Standard Time",
+      endTzid: "W. Europe Standard Time",
+    });
+    const lines = capturedICS.split(/\r?\n/);
+    expect(lines).toContain("DTSTART:20260928T110000Z");
+    expect(lines).toContain("DTEND:20260928T120000Z");
+  });
+
+  test("createEvent writes TZID values the same way", async () => {
+    await makeClient().createEvent(CAL, {
+      summary: "Team Sync",
+      start: new Date("2026-09-28T11:00:00Z"),
+      end: new Date("2026-09-28T12:00:00Z"),
+      startTzid: "Europe/Vienna",
+      endTzid: "Europe/Vienna",
+    });
+    const lines = capturedICS.split(/\r?\n/);
+    expect(lines).toContain("DTSTART;TZID=Europe/Vienna:20260928T130000");
+    expect(lines.some((l) => /^DT(START|END).*Z$/.test(l))).toBe(false);
+  });
+
+  test("a TZID event round-trips through the parser at the same instant", async () => {
+    const start = new Date("2026-09-28T11:00:00Z");
+    const end = new Date("2026-09-28T12:00:00Z");
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      start,
+      end,
+      startTzid: "Europe/Vienna",
+      endTzid: "Europe/Vienna",
+    });
+
+    const [parsed] = await parseEvents(wrapCalendarData(capturedICS));
+    expect(parsed.start.toISOString()).toBe(start.toISOString());
+    expect(parsed.end.toISOString()).toBe(end.toISOString());
+    expect(parsed.startTzid).toBe("Europe/Vienna");
+  });
 });
 
 // ── VEVENT – status ───────────────────────────────────────────────────────────
@@ -134,6 +219,62 @@ describe("buildICSData – status", () => {
   test("STATUS is omitted when unset", async () => {
     await makeClient().updateEvent(CAL, { ...BASE_EVENT });
     expect(vevent().getFirstProperty("status")).toBeNull();
+  });
+});
+
+// ── VEVENT – recurrence exceptions ────────────────────────────────────────────
+
+describe("buildICSData – recurrence exceptions", () => {
+  test("EXDATE and RDATE are emitted as date-time value lists", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      recurrenceRule: { freq: "WEEKLY" },
+      exdates: [
+        new Date("2026-10-12T09:00:00Z"),
+        new Date("2026-11-02T09:00:00Z"),
+      ],
+      rdates: [new Date("2026-11-07T09:00:00Z")],
+    });
+
+    const v = vevent();
+    expect(
+      v
+        .getFirstProperty("exdate")!
+        .getValues()
+        .map((t) => (t as ICAL.Time).toICALString()),
+    ).toEqual(["20261012T090000Z", "20261102T090000Z"]);
+    expect(
+      (v.getFirstProperty("rdate")!.getFirstValue() as ICAL.Time).toICALString(),
+    ).toBe("20261107T090000Z");
+  });
+
+  test("RECURRENCE-ID is emitted for an override", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      recurrenceId: new Date("2026-10-19T09:00:00Z"),
+    });
+
+    expect(
+      (
+        vevent().getFirstProperty("recurrence-id")!.getFirstValue() as ICAL.Time
+      ).toICALString(),
+    ).toBe("20261019T090000Z");
+  });
+
+  test("whole-day series use DATE values for exceptions", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      wholeDay: true,
+      start: new Date("2026-10-05T00:00:00Z"),
+      end: new Date("2026-10-06T00:00:00Z"),
+      exdates: [new Date("2026-10-12T00:00:00Z")],
+    });
+
+    const exdate = vevent().getFirstProperty("exdate")!;
+    expect((exdate.getFirstValue() as ICAL.Time).isDate).toBe(true);
+    expect((exdate.getFirstValue() as ICAL.Time).toICALString()).toBe(
+      "20261012",
+    );
   });
 });
 

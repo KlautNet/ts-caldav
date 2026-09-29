@@ -3,6 +3,7 @@ import { CalDAVError } from "../errors";
 import { DeleteTarget } from "../models";
 import HttpClient, { HttpResponse } from "../http-client";
 import { normalizeSlashEnd } from "../utils/common";
+import { cleanEtag, ifMatchValue, isWeak } from "../utils/etag";
 import { PartialBy } from "./types";
 
 type BuildFn<T> = (data: T, uid: string) => string;
@@ -14,15 +15,6 @@ type IcsPutFn = (
   validate?: (status: number) => boolean,
 ) => Promise<HttpResponse>;
 
-const isWeak = (etag?: string): boolean => {
-  return !!etag && (etag.startsWith('W/"') || etag.startsWith("W/"));
-};
-
-const cleanEtag = (etag?: string): string | undefined => {
-  if (!etag) return undefined;
-  return etag.replace(/^W\//, "").trim();
-};
-
 /**
  * Fetches the ctag after a write that has already committed. CTag is optional
  * sync metadata and is not supported consistently by CalDAV servers, so a
@@ -30,7 +22,7 @@ const cleanEtag = (etag?: string): string | undefined => {
  * Returns "" when unavailable; callers needing a guaranteed-fresh value can
  * call getCtag themselves and handle that error separately.
  */
-const getCtagAfterWrite = async (
+export const getCtagAfterWrite = async (
   calendarUrl: string,
   getCtag: (calendarUrl: string) => Promise<string>,
 ): Promise<string> => {
@@ -162,9 +154,7 @@ export const deleteItem = async (
 
   // Weak ETags are not usable as an If-Match validator (RFC 9110 §13.1.1), so
   // fall back to "*" instead of letting the server reject the request with 412.
-  const validator = etag ?? ref.etag;
-  const ifMatch =
-    validator && !isWeak(validator) ? (cleanEtag(validator) as string) : "*";
+  const ifMatch = ifMatchValue(etag ?? ref.etag);
 
   const send = (url: string) =>
     httpClient.delete(url, {

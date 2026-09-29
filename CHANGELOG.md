@@ -6,8 +6,41 @@ minor releases may carry notable internal changes worth reviewing.
 
 ## 0.5.0
 
+### Added
+
+- **Occurrence-level editing for recurring events.** `updateOccurrence` changes
+  a single occurrence by writing an override component (same UID, plus a
+  `RECURRENCE-ID`) into the series resource, and `deleteOccurrence` removes one
+  occurrence via `EXDATE` — or, with `{ scope: "thisAndFuture" }`, that
+  occurrence and every later one by truncating the rule with `UNTIL`. Both read
+  the resource, amend it and write it back, so existing overrides survive; a
+  `thisAndFuture` cut at the first occurrence deletes the series outright and
+  reports `seriesDeleted`.
+- **`RECURRENCE-ID`, `EXDATE` and `RDATE` are parsed and written.** `Event`
+  gains `recurrenceId` (set on an override, carrying the original start of the
+  occurrence it replaces), plus `exdates` and `rdates` on the master. They
+  previously landed in `customFields` on read and were dropped on write.
+- New public types: `OccurrenceScope`, `OccurrenceChanges`, `OccurrenceRef` and
+  `OccurrenceResult`.
+
 ### Fixed
 
+- **Timezone-aware events are no longer written as UTC with a `TZID`** (#27).
+  `createEvent` and `updateEvent` wrote `DTSTART;TZID=Europe/Vienna:...T110000Z`,
+  a UTC value carrying a `TZID` parameter, which RFC 5545 forbids. Clients
+  resolve that ambiguity differently: iOS Calendar honoured the `TZID` and
+  showed the event shifted by the zone's offset. The value is now the
+  wall-clock time in the zone (`...T130000`), converted with the runtime's
+  `Intl` zone data; a `TZID` the runtime does not know (e.g. a Windows zone
+  name) falls back to plain UTC without the parameter.
+- **A `TZID` without a matching `VTIMEZONE` is read in that zone, not in the
+  process's local zone** (#27). ical.js resolves a `TZID` only through a
+  `VTIMEZONE` embedded in the resource, so `DTSTART;TZID=Europe/Vienna:...`
+  from a server that stores none parsed as a floating time and `getEvents`
+  returned an instant that depended on the server process's `TZ`. Start, end,
+  `RECURRENCE-ID`, `EXDATE` and `RDATE` now resolve through the same `Intl`
+  data, and `updateOccurrence` / `deleteOccurrence` match occurrences the same
+  way.
 - **`Event.status` is now written to the `VEVENT`** (#26). `createEvent` and
   `updateEvent` silently dropped the field, so a status set on an event never
   reached the server (`getEvents` then read it back as `undefined`). The VTODO

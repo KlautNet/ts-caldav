@@ -11,6 +11,7 @@ import {
   TodoStatus,
 } from "../models";
 import ICAL from "ical.js";
+import { resolvePropertyTime, resolveTime } from "./timezone";
 import {
   asNode,
   asString,
@@ -134,11 +135,39 @@ const KNOWN_EVENT_PROPERTIES = new Set([
   "dtstart",
   "dtend",
   "rrule",
+  "recurrence-id",
+  "exdate",
+  "rdate",
   "dtstamp",
   "created",
   "last-modified",
   "sequence",
 ]);
+
+/**
+ * Collects the dates held by every occurrence of a multi-valued date property
+ * (`EXDATE`/`RDATE`). Each property may carry several values, and `RDATE` may
+ * additionally hold PERIOD values, whose start is the occurrence.
+ */
+const collectDateValues = (
+  component: ICAL.Component,
+  name: "exdate" | "rdate",
+): Date[] | undefined => {
+  const props = component.getAllProperties(name);
+  if (!props.length) return undefined;
+
+  const dates: Date[] = [];
+  for (const prop of props) {
+    for (const value of prop.getValues()) {
+      if (value instanceof ICAL.Time) {
+        dates.push(resolvePropertyTime(value, prop));
+      } else if (value instanceof ICAL.Period) {
+        dates.push(resolvePropertyTime(value.start, prop));
+      }
+    }
+  }
+  return dates.length ? dates : undefined;
+};
 
 export const parseEvents = async (
   responseData: string,
@@ -166,14 +195,18 @@ export const parseEvents = async (
       const dtStartProp = vevent.getFirstProperty("dtstart");
       const dtEndProp = vevent.getFirstProperty("dtend");
 
-      const isWholeDay = icalEvent.startDate.isDate;
-      const startDate = icalEvent.startDate.toJSDate();
-      const endDate = icalEvent.endDate?.toJSDate() ?? startDate;
-
-      const adjustedEnd = isWholeDay ? new Date(endDate.getTime()) : endDate;
-
       const startTzid = normalizeParam(dtStartProp?.getParameter("tzid"));
       const endTzid = normalizeParam(dtEndProp?.getParameter("tzid"));
+
+      const isWholeDay = icalEvent.startDate.isDate;
+      const startDate = resolveTime(icalEvent.startDate, startTzid);
+      // Without a DTEND the end derives from DTSTART plus DURATION, so it is
+      // read in the start's zone.
+      const endDate = icalEvent.endDate
+        ? resolveTime(icalEvent.endDate, dtEndProp ? endTzid : startTzid)
+        : startDate;
+
+      const adjustedEnd = isWholeDay ? new Date(endDate.getTime()) : endDate;
 
       const rruleProp = vevent.getFirstProperty("rrule");
       let recurrenceRule: RecurrenceRule | undefined;
@@ -233,6 +266,16 @@ export const parseEvents = async (
         KNOWN_EVENT_PROPERTIES,
       );
 
+      const recurrenceIdProp = vevent.getFirstProperty("recurrence-id");
+      const recurrenceIdValue = recurrenceIdProp?.getFirstValue();
+      const recurrenceId =
+        recurrenceIdValue instanceof ICAL.Time
+          ? resolvePropertyTime(recurrenceIdValue, recurrenceIdProp)
+          : undefined;
+
+      const exdates = collectDateValues(vevent, "exdate");
+      const rdates = collectDateValues(vevent, "rdate");
+
       events.push({
         uid: icalEvent.uid,
         summary: icalEvent.summary || "Untitled Event",
@@ -251,6 +294,9 @@ export const parseEvents = async (
         startTzid,
         endTzid,
         alarms,
+        ...(recurrenceId ? { recurrenceId } : {}),
+        ...(exdates ? { exdates } : {}),
+        ...(rdates ? { rdates } : {}),
         ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
       });
     }

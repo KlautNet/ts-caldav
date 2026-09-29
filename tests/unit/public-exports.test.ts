@@ -9,6 +9,10 @@ import type {
   Event,
   EventRef,
   EventStatus,
+  OccurrenceChanges,
+  OccurrenceRef,
+  OccurrenceResult,
+  OccurrenceScope,
   RecurrenceRule,
   SupportedComponent,
   SyncChangesResult,
@@ -73,6 +77,18 @@ describe("public exports", () => {
       status: todoStatus,
     };
     const eventRef: EventRef = { href: event.href, etag: event.etag };
+    const occurrenceScope: OccurrenceScope = "thisAndFuture";
+    const occurrenceRef: OccurrenceRef = { href: event.href, etag: event.etag };
+    const occurrenceChanges: OccurrenceChanges = {
+      summary: "Moved instance",
+      start: new Date("2026-10-19T14:00:00Z"),
+    };
+    const occurrenceResult: OccurrenceResult = {
+      href: event.href,
+      etag: event.etag,
+      newCtag: "ctag-4",
+      seriesDeleted: false,
+    };
     const todoRef: TodoRef = { href: todo.href, etag: todo.etag ?? "" };
     const cache: CalDAVClientCache = {
       userPrincipal: "/principals/user/",
@@ -101,6 +117,10 @@ describe("public exports", () => {
       options,
       calendar,
       event,
+      occurrenceScope,
+      occurrenceRef,
+      occurrenceChanges,
+      occurrenceResult,
       todo,
       cache,
       timezone,

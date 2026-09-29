@@ -1,6 +1,7 @@
 import ICAL from "ical.js";
 import { Event, Todo } from "../models";
 import { PartialBy } from "./types";
+import { toZonedTime } from "../utils/timezone";
 
 const addAlarms = (component: ICAL.Component, alarms?: Event["alarms"]) => {
   if (!alarms) return;
@@ -39,6 +40,53 @@ const addCustomFields = (
   }
 };
 
+/**
+ * Builds the iCalendar time value for a date, matching the component's value
+ * type: whole-day components carry DATE values, everything else DATE-TIME.
+ */
+export const occurrenceTime = (date: Date, wholeDay?: boolean): ICAL.Time =>
+  wholeDay
+    ? ICAL.Time.fromDateString(date.toISOString().split("T")[0])
+    : ICAL.Time.fromJSDate(date, true);
+
+const addDateList = (
+  component: ICAL.Component,
+  name: "exdate" | "rdate",
+  dates: Date[] | undefined,
+  wholeDay?: boolean,
+) => {
+  if (!dates?.length) return;
+
+  // One property carrying every value, which is what servers round-trip most
+  // predictably (RFC 5545 §3.8.5 allows either form).
+  const prop = new ICAL.Property(name, component);
+  prop.resetType(wholeDay ? "date" : "date-time");
+  prop.setValues(dates.map((date) => occurrenceTime(date, wholeDay)));
+  component.addProperty(prop);
+};
+
+/**
+ * Writes a DATE-TIME property. With a known `tzid` the value is the wall-clock
+ * time in that zone plus a `TZID` parameter; a UTC value must not carry a
+ * `TZID` (RFC 5545 §3.3.5), and clients that honour the parameter over the
+ * trailing `Z` would otherwise shift the event by the zone's offset. An
+ * unknown zone falls back to plain UTC.
+ */
+const addDateTime = (
+  component: ICAL.Component,
+  name: "dtstart" | "dtend",
+  date: Date,
+  tzid?: string,
+) => {
+  const zoned = tzid ? toZonedTime(date, tzid) : undefined;
+  if (zoned) {
+    const prop = component.addPropertyWithValue(name, zoned);
+    prop.setParameter("tzid", tzid!);
+  } else {
+    component.addPropertyWithValue(name, ICAL.Time.fromJSDate(date, true));
+  }
+};
+
 export const buildEventICSData = (
   event: PartialBy<Event, "uid" | "etag" | "href">,
   uid: string,
@@ -70,22 +118,8 @@ export const buildEventICSData = (
       endExclusive.toISOString().split("T")[0],
     );
   } else {
-    const start = ICAL.Time.fromJSDate(event.start, true);
-    const end = ICAL.Time.fromJSDate(event.end, true);
-
-    if (event.startTzid) {
-      const prop = vevent.addPropertyWithValue("dtstart", start);
-      prop.setParameter("tzid", event.startTzid);
-    } else {
-      e.startDate = start;
-    }
-
-    if (event.endTzid) {
-      const prop = vevent.addPropertyWithValue("dtend", end);
-      prop.setParameter("tzid", event.endTzid);
-    } else {
-      e.endDate = end;
-    }
+    addDateTime(vevent, "dtstart", event.start, event.startTzid);
+    addDateTime(vevent, "dtend", event.end, event.endTzid);
   }
 
   e.summary = event.summary;
@@ -112,6 +146,15 @@ export const buildEventICSData = (
     if (r.bymonth) rruleProps.BYMONTH = r.bymonth.join(",");
     vevent.addPropertyWithValue("rrule", rruleProps);
   }
+
+  if (event.recurrenceId) {
+    vevent.addPropertyWithValue(
+      "recurrence-id",
+      occurrenceTime(event.recurrenceId, event.wholeDay),
+    );
+  }
+  addDateList(vevent, "exdate", event.exdates, event.wholeDay);
+  addDateList(vevent, "rdate", event.rdates, event.wholeDay);
 
   addCustomFields(vevent, event.customFields);
   addAlarms(vevent, event.alarms);

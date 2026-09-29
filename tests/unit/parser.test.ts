@@ -265,3 +265,129 @@ describe("parseEvents – description encoding", () => {
     expect(event.description).toBe(base + "X");
   });
 });
+
+// ── VEVENT – recurrence exceptions ────────────────────────────────────────────
+
+const RECURRING_SERIES = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:series-1
+SUMMARY:Weekly
+DTSTAMP:20261001T120000Z
+DTSTART:20261005T090000Z
+DTEND:20261005T100000Z
+RRULE:FREQ=WEEKLY;COUNT=6
+EXDATE:20261012T090000Z,20261102T090000Z
+RDATE:20261107T090000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:series-1
+SUMMARY:Moved instance
+DTSTAMP:20261001T120000Z
+RECURRENCE-ID:20261019T090000Z
+DTSTART:20261019T140000Z
+DTEND:20261019T150000Z
+END:VEVENT
+END:VCALENDAR`;
+
+describe("parseEvents – recurrence exceptions", () => {
+  test("EXDATE and RDATE values are parsed onto the master", async () => {
+    const [master] = await parseEvents(wrapXml(RECURRING_SERIES));
+
+    expect(master.exdates?.map((d) => d.toISOString())).toEqual([
+      "2026-10-12T09:00:00.000Z",
+      "2026-11-02T09:00:00.000Z",
+    ]);
+    expect(master.rdates?.map((d) => d.toISOString())).toEqual([
+      "2026-11-07T09:00:00.000Z",
+    ]);
+    expect(master.recurrenceId).toBeUndefined();
+  });
+
+  test("an override carries its RECURRENCE-ID", async () => {
+    const [, override] = await parseEvents(wrapXml(RECURRING_SERIES));
+
+    expect(override.recurrenceId?.toISOString()).toBe(
+      "2026-10-19T09:00:00.000Z",
+    );
+    expect(override.start.toISOString()).toBe("2026-10-19T14:00:00.000Z");
+    expect(override.uid).toBe("series-1");
+  });
+
+  test("recurrence properties do not leak into customFields", async () => {
+    const [master, override] = await parseEvents(wrapXml(RECURRING_SERIES));
+
+    expect(master.customFields).toBeUndefined();
+    expect(override.customFields).toBeUndefined();
+  });
+});
+
+// ── TZID without VTIMEZONE ────────────────────────────────────────────────────
+
+// What updateEvent writes, and what a server stores when it keeps no
+// VTIMEZONE: ical.js cannot resolve the TZID on its own, and must not fall
+// back to the process's local zone (#27).
+const ZONED_EVENT = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:zoned-1
+SUMMARY:Zoned
+DTSTAMP:20260901T120000Z
+DTSTART;TZID=Europe/Vienna:20260928T130000
+DTEND;TZID=America/New_York:20260928T090000
+RRULE:FREQ=WEEKLY;COUNT=4
+EXDATE;TZID=Europe/Vienna:20261005T130000
+END:VEVENT
+BEGIN:VEVENT
+UID:zoned-1
+SUMMARY:Moved
+DTSTAMP:20260901T120000Z
+RECURRENCE-ID;TZID=Europe/Vienna:20261012T130000
+DTSTART;TZID=Europe/Vienna:20261012T150000
+DURATION:PT1H
+END:VEVENT
+END:VCALENDAR`;
+
+describe("parseEvents – TZID without VTIMEZONE", () => {
+  test("start and end are read in their own zones", async () => {
+    const [master] = await parseEvents(wrapXml(ZONED_EVENT));
+
+    expect(master.start.toISOString()).toBe("2026-09-28T11:00:00.000Z");
+    expect(master.end.toISOString()).toBe("2026-09-28T13:00:00.000Z");
+    expect(master.startTzid).toBe("Europe/Vienna");
+    expect(master.endTzid).toBe("America/New_York");
+  });
+
+  test("EXDATE and RECURRENCE-ID honour their TZID", async () => {
+    const [master, override] = await parseEvents(wrapXml(ZONED_EVENT));
+
+    expect(master.exdates?.map((d) => d.toISOString())).toEqual([
+      "2026-10-05T11:00:00.000Z",
+    ]);
+    expect(override.recurrenceId?.toISOString()).toBe(
+      "2026-10-12T11:00:00.000Z",
+    );
+  });
+
+  test("an end derived from DURATION is read in the start's zone", async () => {
+    const [, override] = await parseEvents(wrapXml(ZONED_EVENT));
+
+    expect(override.start.toISOString()).toBe("2026-10-12T13:00:00.000Z");
+    expect(override.end.toISOString()).toBe("2026-10-12T14:00:00.000Z");
+  });
+
+  test("an unknown TZID keeps the previous floating behaviour", async () => {
+    const ics = ZONED_EVENT.replace(
+      "DTSTART;TZID=Europe/Vienna:20260928T130000",
+      "DTSTART;TZID=W. Europe Standard Time:20260928T130000",
+    );
+    const [master] = await parseEvents(wrapXml(ics));
+
+    expect(master.start.getTime()).toBe(
+      new Date(2026, 8, 28, 13, 0, 0).getTime(),
+    );
+    expect(master.startTzid).toBe("W. Europe Standard Time");
+  });
+});

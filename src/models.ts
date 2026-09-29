@@ -89,7 +89,51 @@ export interface Event {
   endTzid?: string;
   alarms?: Alarm[];
   customFields?: Record<string, string | string[]>;
+  /**
+   * Set when this component overrides a single occurrence of a recurring
+   * series (`RECURRENCE-ID`). It carries the *original* start of the
+   * overridden occurrence, which stays fixed even when the override moves the
+   * occurrence to a different time.
+   */
+  recurrenceId?: Date;
+  /** Occurrences removed from the series (`EXDATE`). Master component only. */
+  exdates?: Date[];
+  /** Occurrences added to the series (`RDATE`). Master component only. */
+  rdates?: Date[];
 }
+
+/**
+ * Which occurrences of a recurring series an operation applies to.
+ * `"this"` touches the single occurrence; `"thisAndFuture"` also drops every
+ * later one by truncating the series.
+ */
+export type OccurrenceScope = "this" | "thisAndFuture";
+
+/** The fields an override may change on a single occurrence. */
+export type OccurrenceChanges = Partial<
+  Pick<
+    Event,
+    | "summary"
+    | "description"
+    | "location"
+    | "status"
+    | "start"
+    | "end"
+    | "alarms"
+    | "customFields"
+  >
+>;
+
+/** Identifies the recurring series an occurrence belongs to. */
+export type OccurrenceRef = { href?: string; uid?: string; etag?: string };
+
+export type OccurrenceResult = {
+  href: string;
+  etag: string;
+  newCtag: string;
+  /** True when the operation removed the whole series resource. */
+  seriesDeleted: boolean;
+};
 
 export type TodoRef = EventRef;
 
