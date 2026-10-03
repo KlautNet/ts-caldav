@@ -391,3 +391,79 @@ describe("parseEvents – TZID without VTIMEZONE", () => {
     expect(master.startTzid).toBe("W. Europe Standard Time");
   });
 });
+
+// ── character references in calendar-data ─────────────────────────────────────
+
+describe("calendar-data line breaks sent as character references (#28)", () => {
+  // Migadu sends `&#xA;`; the other forms are the same line breaks spelled
+  // differently and must behave identically.
+  const separators = [
+    "&#xA;",
+    "&#xa;",
+    "&#10;",
+    "&#xD;&#xA;",
+    "&#13;&#10;",
+    "&#13;\n",
+    "&#xD;\n",
+  ];
+
+  test.each(separators)("events parse with %j", async (separator) => {
+    const xml = wrapXml(BASE_EVENT.split("\n").join(separator) + separator);
+    const [event] = await parseEvents(xml);
+
+    expect(event.uid).toBe("event-uid-1");
+    expect(event.start.toISOString()).toBe("2026-03-17T10:00:00.000Z");
+  });
+
+  test.each(separators)("todos parse with %j", async (separator) => {
+    const xml = wrapXml(BASE_TODO.split("\n").join(separator) + separator);
+    const [todo] = await parseTodos(xml);
+
+    expect(todo.uid).toBe("todo-uid-1");
+    expect(todo.summary).toBe("My Task");
+  });
+
+  test("character references inside property values are decoded", async () => {
+    const ics = BASE_EVENT.replace(
+      /SUMMARY:.*/,
+      "SUMMARY:Caf&#xE9; &#8364;5 Bob&#39;s",
+    );
+    const [event] = await parseEvents(wrapXml(ics));
+
+    expect(event.summary).toBe("Café €5 Bob's");
+  });
+
+  test("text that merely looks like a character reference is kept", async () => {
+    const ics = BASE_EVENT.replace(
+      /SUMMARY:.*/,
+      "SUMMARY:type &amp;#13; or &amp;#xA; for a line break",
+    );
+    const [event] = await parseEvents(wrapXml(ics));
+
+    expect(event.summary).toBe("type &#13; or &#xA; for a line break");
+  });
+});
+
+describe("parseCalendars – numeric-looking values", () => {
+  test("a numeric display name and ctag are kept as strings", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/calendars/u/2026/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:displayname>2026</d:displayname>
+        <cs:getctag>1759483920</cs:getctag>
+        <cal:supported-calendar-component-set><cal:comp name="VEVENT"/></cal:supported-calendar-component-set>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>`;
+
+    const [calendar] = await parseCalendars(xml);
+
+    expect(calendar.displayName).toBe("2026");
+    expect(calendar.ctag).toBe("1759483920");
+  });
+});

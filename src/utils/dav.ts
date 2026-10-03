@@ -7,6 +7,13 @@ export const parseDavXml = (xml: string): DavNode => {
     removeNSPrefix: true,
     ignoreAttributes: false,
     attributeNamePrefix: "",
+    // Numeric character references (`&#xA;`, `&#13;`, `&#34;`) are valid XML
+    // and servers use them for line breaks in calendar-data, but the parser
+    // only decodes them with this option on.
+    htmlEntities: true,
+    // Keep text as text: a calendar named "2026" or a numeric ctag would
+    // otherwise be turned into a number.
+    parseTagValue: false,
   });
   return parser.parse(xml) as DavNode;
 };

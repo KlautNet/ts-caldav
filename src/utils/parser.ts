@@ -183,9 +183,7 @@ export const parseEvents = async (
     const rawCalendarData = asString(eventData["calendar-data"]);
     if (!rawCalendarData) continue;
 
-    const cleanedCalendarData = rawCalendarData.replace(/&#13;/g, "\r");
-
-    const jcalData = ICAL.parse(cleanedCalendarData);
+    const jcalData = ICAL.parse(rawCalendarData);
     const vcalendar = new ICAL.Component(jcalData);
 
     const vevents = vcalendar.getAllSubcomponents("vevent");
@@ -335,9 +333,7 @@ export const parseTodos = async (
     const rawCalendarData = asString(todoData["calendar-data"]);
     if (!rawCalendarData) continue;
 
-    const cleanedCalendarData = rawCalendarData.replace(/&#13;/g, "\r\n");
-
-    const jcalData = ICAL.parse(cleanedCalendarData);
+    const jcalData = ICAL.parse(rawCalendarData);
     const vcalendar = new ICAL.Component(jcalData);
 
     const vtodos = vcalendar.getAllSubcomponents("vtodo");

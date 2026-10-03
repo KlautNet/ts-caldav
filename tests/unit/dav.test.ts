@@ -78,4 +78,49 @@ describe("DAV XML helpers", () => {
     expect(getSuccessfulPropstats(response)).toHaveLength(1);
     expect(getFirstSuccessfulProp(response)?.displayname).toBe("Calendar");
   });
+
+  test("decodes numeric character references in text and attributes (#28)", () => {
+    const parsed = parseDavXml(`
+      <multistatus xmlns="DAV:">
+        <response>
+          <href>/calendar/</href>
+          <propstat>
+            <prop>
+              <displayname>R&#xE9;union &#38; Caf&#233;</displayname>
+              <getetag>&#34;one&#34;</getetag>
+              <comp name="V&#x45;VENT"/>
+            </prop>
+            <status>HTTP/1.1 200 OK</status>
+          </propstat>
+        </response>
+      </multistatus>`);
+
+    const prop = getFirstSuccessfulProp(getDavResponses(parsed)[0]);
+
+    expect(prop?.displayname).toBe("Réunion & Café");
+    expect(prop?.getetag).toBe('"one"');
+    expect(prop?.comp).toEqual({ name: "VEVENT" });
+  });
+
+  test("an escaped ampersand is decoded once, not twice", () => {
+    const parsed = parseDavXml(
+      `<prop><displayname>type &amp;#xA; or &amp;amp;</displayname></prop>`,
+    );
+
+    expect((parsed.prop as Record<string, unknown>).displayname).toBe(
+      "type &#xA; or &amp;",
+    );
+  });
+
+  test("numeric-looking text stays a string", () => {
+    const parsed = parseDavXml(
+      `<prop><displayname>2026</displayname><getctag>0017</getctag><getetag>1.50</getetag></prop>`,
+    );
+
+    expect(parsed.prop).toEqual({
+      displayname: "2026",
+      getctag: "0017",
+      getetag: "1.50",
+    });
+  });
 });

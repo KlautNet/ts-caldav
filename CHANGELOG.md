@@ -4,7 +4,23 @@ All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/). While the package is pre-`1.0`,
 minor releases may carry notable internal changes worth reviewing.
 
-## 0.4.3
+## 0.4.4
+
+### Fixed
+
+- **Calendar data with numeric character references now parses** (#28).
+  `getEvents` / `getTodos` threw `invalid ical body` against servers that send
+  the line breaks inside `calendar-data` as `&#xA;` or `&#10;` (Migadu, for
+  one), and silently returned nothing for `&#xD;`. Only `&#13;` was handled.
+  The XML parser now decodes every numeric reference, so the same applies to
+  names, ETags and property values (`Caf&#xE9;` is read as `Café`).
+- **Text that only looks like a character reference is left alone.** A summary
+  containing the literal text `&#13;` (sent as `&amp;#13;`) was decoded a second
+  time into a carriage return.
+- **Numeric-looking values are no longer dropped.** A calendar named `2026`
+  came back with an empty `displayName`, and an all-digit ctag or ETag came
+  back as `undefined` / `""`, because the XML parser converted them to numbers.
+
 
 ### Added
 
