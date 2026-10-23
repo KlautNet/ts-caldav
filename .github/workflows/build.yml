@@ -39,5 +39,17 @@ jobs:
       # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
       - run: npm install -g npm@latest
 
+      # Temporary diagnostics for trusted publishing: the claims npm matches
+      # against the trusted publisher entry (no secrets; the signature is dropped).
+      - name: Show OIDC token claims
+        run: |
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" \
+            | jq -r '.value | split(".")[1]' | base64 -d 2>/dev/null | jq .
+
       - name: Publish to npm
         run: npm publish --provenance --access public
+
+      - name: npm debug log
+        if: failure()
+        run: cat /home/runner/.npm/_logs/*-debug-0.log
