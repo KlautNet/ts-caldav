@@ -3,6 +3,7 @@ name: Publish Package
 on:
   release:
     types: [created]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,10 +24,11 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # No registry-url: setup-node would write an .npmrc with a placeholder
+      # auth token, which makes npm skip trusted publishing (OIDC).
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org/
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
