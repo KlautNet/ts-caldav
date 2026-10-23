@@ -12,6 +12,7 @@ import {
 } from "../models";
 import ICAL from "ical.js";
 import { resolvePropertyTime, resolveTime } from "./timezone";
+import { normalizeIcs } from "./ics";
 import {
   asNode,
   asString,
@@ -70,7 +71,10 @@ const parseRecurrence = (recur: ICAL.Recur): RecurrenceRule => {
   const bymonth = recur.parts.BYMONTH
     ? recur.parts.BYMONTH.map((month: number) => month)
     : undefined;
-  const wkst = recur.wkst ? recur.wkst.toString() : undefined;
+  const wkst =
+    typeof recur.wkst === "number"
+      ? ICAL.Recur.numericDayToIcalDay(recur.wkst)
+      : undefined;
 
   return {
     freq,
@@ -124,6 +128,13 @@ export const parseCalendars = async (
   }
 
   return calendars;
+};
+
+const parseSequence = (component: ICAL.Component): number | undefined => {
+  const value = component.getFirstPropertyValue("sequence");
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
 };
 
 const KNOWN_EVENT_PROPERTIES = new Set([
@@ -183,7 +194,7 @@ export const parseEvents = async (
     const rawCalendarData = asString(eventData["calendar-data"]);
     if (!rawCalendarData) continue;
 
-    const jcalData = ICAL.parse(rawCalendarData);
+    const jcalData = ICAL.parse(normalizeIcs(rawCalendarData));
     const vcalendar = new ICAL.Component(jcalData);
 
     const vevents = vcalendar.getAllSubcomponents("vevent");
@@ -273,6 +284,7 @@ export const parseEvents = async (
 
       const exdates = collectDateValues(vevent, "exdate");
       const rdates = collectDateValues(vevent, "rdate");
+      const sequence = parseSequence(vevent);
 
       events.push({
         uid: icalEvent.uid,
@@ -292,6 +304,7 @@ export const parseEvents = async (
         startTzid,
         endTzid,
         alarms,
+        ...(sequence !== undefined ? { sequence } : {}),
         ...(recurrenceId ? { recurrenceId } : {}),
         ...(exdates ? { exdates } : {}),
         ...(rdates ? { rdates } : {}),
@@ -333,7 +346,7 @@ export const parseTodos = async (
     const rawCalendarData = asString(todoData["calendar-data"]);
     if (!rawCalendarData) continue;
 
-    const jcalData = ICAL.parse(rawCalendarData);
+    const jcalData = ICAL.parse(normalizeIcs(rawCalendarData));
     const vcalendar = new ICAL.Component(jcalData);
 
     const vtodos = vcalendar.getAllSubcomponents("vtodo");
@@ -354,6 +367,8 @@ export const parseTodos = async (
       const status = TODO_STATUSES.includes(rawStatus as TodoStatus)
         ? (rawStatus as TodoStatus)
         : undefined;
+
+      const sequence = parseSequence(vtodo);
 
       const sortOrderRaw = vtodo.getFirstPropertyValue(
         "x-apple-sort-order",
@@ -433,6 +448,7 @@ export const parseTodos = async (
             : response.href ?? "",
         alarms,
         sortOrder,
+        ...(sequence !== undefined ? { sequence } : {}),
         ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
       });
     }

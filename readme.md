@@ -219,6 +219,28 @@ To use full timezone definitions, include your own `VTIMEZONE` in raw iCal.
 
 > **ETag notice:** Some CalDAV servers, such as Yahoo, do not return an ETag header when creating events. Because ETag is required to safely update events, calling `updateEvent` on strict CalDAV servers may fail unless the ETag is retrieved via PROPFIND. Use `getETag()` to fetch it manually.
 
+### `updateEvent(calendarUrl, event)`
+
+Rewrites the event resource. `event` should come from `getEvents` /
+`getEventsByHref` so that it carries the `href`, `etag` and `sequence` the
+server knows.
+
+Every update writes `SEQUENCE` as the event's `sequence` plus one (`1` when the
+event has none). Some servers, Open-Xchange among them, reject an update whose
+`SEQUENCE` is behind the stored one, so when you update the same object twice
+without re-reading it, carry the returned `sequence` into the next call:
+
+```ts
+const [event] = await client.getEvents(calendarUrl);
+const first = await client.updateEvent(calendarUrl, { ...event, summary: "A" });
+await client.updateEvent(calendarUrl, {
+  ...event,
+  etag: first.etag,
+  sequence: first.sequence,
+  summary: "B",
+});
+```
+
 ### `deleteEvent(calendarUrl, event, etag?)`
 
 Deletes an event, optionally using an ETag for safe deletion.
@@ -373,7 +395,8 @@ the process's own time zone is.
 
 ## Recurrence Support
 
-Supports `freq`, `interval`, `count`, `until`, `byday`, `bymonthday`, `bymonth`.
+Supports `freq`, `interval`, `count`, `until`, `wkst`, `byday`, `bymonthday`,
+`bymonth`.
 
 ```ts
 recurrenceRule: {
@@ -383,6 +406,9 @@ recurrenceRule: {
   until: new Date("2025-12-31"),
 }
 ```
+
+`until` is written as a UTC date-time (`UNTIL=20251231T000000Z`), or as a date
+for a whole-day series. `wkst` is an iCalendar weekday such as `"MO"`.
 
 ### Exceptions and overrides
 
@@ -415,6 +441,12 @@ Every failure thrown from a public method is a `CalDAVError`. It exposes an
 optional `status` (the HTTP status code, when the failure came from a response)
 and, for wrapped lower-level failures, the original error as `cause`.
 
+When the failure came from a response, the server's body is kept as
+`responseBody`, and if that body is a `DAV:error` document the local name of
+its precondition element (for example `no-uid-conflict`) is exposed as
+`precondition`. Both survive the wrapping that `createEvent` / `updateEvent`
+and friends do.
+
 ```ts
 import { CalDAVClient, CalDAVError } from "ts-caldav";
 
@@ -423,6 +455,8 @@ try {
 } catch (err) {
   if (err instanceof CalDAVError) {
     console.error(err.message, err.status); // e.g. "HTTP 404", 404
+    console.error(err.precondition); // e.g. "no-uid-conflict", if the server sent one
+    console.error(err.responseBody); // the raw body, for diagnostics
     console.error(err.cause); // underlying error, if any
   }
 }

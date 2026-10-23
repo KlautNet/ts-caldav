@@ -212,7 +212,13 @@ export class CalDAVClient {
   public async updateEvent(
     calendarUrl: string,
     event: Event,
-  ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
+  ): Promise<{
+    uid: string;
+    href: string;
+    etag: string;
+    newCtag: string;
+    sequence: number;
+  }> {
     return updateProtocolItem<Event>(
       calendarUrl,
       event,
@@ -369,7 +375,13 @@ export class CalDAVClient {
   public async updateTodo(
     calendarUrl: string,
     todo: Todo,
-  ): Promise<{ uid: string; href: string; etag: string; newCtag: string }> {
+  ): Promise<{
+    uid: string;
+    href: string;
+    etag: string;
+    newCtag: string;
+    sequence: number;
+  }> {
     return updateProtocolItem<Todo>(
       calendarUrl,
       todo,

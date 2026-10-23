@@ -467,3 +467,92 @@ describe("parseCalendars – numeric-looking values", () => {
     expect(calendar.ctag).toBe("1759483920");
   });
 });
+
+// ── SEQUENCE and WKST ─────────────────────────────────────────────────────────
+
+describe("parseEvents / parseTodos – SEQUENCE and WKST", () => {
+  test("SEQUENCE is read as a number (#30)", async () => {
+    const [event] = await parseEvents(wrapXml(BASE_EVENT));
+    expect(event.sequence).toBe(1);
+    expect(event.customFields).toBeUndefined();
+
+    const [todo] = await parseTodos(wrapXml(BASE_TODO));
+    expect(todo.sequence).toBe(2);
+  });
+
+  test("a missing SEQUENCE stays undefined", async () => {
+    const [event] = await parseEvents(wrapXml(BASE_EVENT.replace("SEQUENCE:1\n", "")));
+    expect(event.sequence).toBeUndefined();
+    expect("sequence" in event).toBe(false);
+  });
+
+  test("WKST is read as an iCalendar weekday", async () => {
+    const ics = BASE_EVENT.replace(
+      "SEQUENCE:1",
+      "RRULE:FREQ=WEEKLY;WKST=SU;BYDAY=TU",
+    );
+    const [event] = await parseEvents(wrapXml(ics));
+
+    expect(event.recurrenceRule?.wkst).toBe("SU");
+    expect(event.recurrenceRule?.byday).toEqual(["TU"]);
+  });
+});
+
+// ── UNTIL written by older versions ───────────────────────────────────────────
+
+describe("parseEvents – UNTIL in extended ISO form (#29)", () => {
+  const series = (until: string) => `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:series-until
+DTSTAMP:20260101T000000Z
+DTSTART:20300902T100000Z
+DTEND:20300902T110000Z
+RRULE:FREQ=WEEKLY;UNTIL=${until}
+SUMMARY:Series
+END:VEVENT
+END:VCALENDAR`;
+
+  test("a date-time UNTIL is read, and other items in the response survive", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <response>
+    <href>/dav/calendars/test/series.ics</href>
+    <propstat>
+      <prop>
+        <getetag>"s"</getetag>
+        <C:calendar-data>${series("2030-12-30T10:00:00Z")}</C:calendar-data>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+  <response>
+    <href>/dav/calendars/test/item.ics</href>
+    <propstat>
+      <prop>
+        <getetag>"i"</getetag>
+        <C:calendar-data>${BASE_EVENT}</C:calendar-data>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
+</multistatus>`;
+
+    const events = await parseEvents(xml);
+
+    expect(events.map((e) => e.uid)).toEqual(["series-until", "event-uid-1"]);
+    expect(events[0].recurrenceRule?.until?.toISOString()).toBe(
+      "2030-12-30T10:00:00.000Z",
+    );
+  });
+
+  test("a date UNTIL is read as the date it names", async () => {
+    const [event] = await parseEvents(wrapXml(series("2030-12-30")));
+    const until = event.recurrenceRule?.until;
+
+    expect(until?.getFullYear()).toBe(2030);
+    expect(until?.getMonth()).toBe(11);
+    expect(until?.getDate()).toBe(30);
+  });
+});

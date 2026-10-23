@@ -63,22 +63,17 @@ export const createItem = async <
     return { uid, href: `${base}/${uid}.ics`, etag, newCtag };
   } catch (error) {
     if (error instanceof CalDAVError && error.status === 412) {
-      throw new CalDAVError(
+      throw CalDAVError.wrap(
         `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid already exists.`,
-        412,
-        { cause: error },
+        error,
       );
     }
-    throw new CalDAVError(
-      `Failed to create ${itemType}.`,
-      error instanceof CalDAVError ? error.status : undefined,
-      { cause: error },
-    );
+    throw CalDAVError.wrap(`Failed to create ${itemType}.`, error);
   }
 };
 
 export const updateItem = async <
-  T extends { uid: string; href: string; etag?: string },
+  T extends { uid: string; href: string; etag?: string; sequence?: number },
 >(
   calendarUrl: string,
   item: T,
@@ -87,14 +82,22 @@ export const updateItem = async <
   mkIcsPut: IcsPutFn,
   getCtag: (calendarUrl: string) => Promise<string>,
   absolutize: (urlOrPath: string) => string,
-): Promise<{ uid: string; href: string; etag: string; newCtag: string }> => {
+): Promise<{
+  uid: string;
+  href: string;
+  etag: string;
+  newCtag: string;
+  sequence: number;
+}> => {
   if (!item.uid || !item.href) {
     throw new CalDAVError(
       `Both 'uid' and 'href' are required to update a ${itemType}.`,
     );
   }
 
-  const ics = buildFn(item, item.uid);
+  // Some servers reject an update whose SEQUENCE is behind the stored one.
+  const sequence = (item.sequence ?? 0) + 1;
+  const ics = buildFn({ ...item, sequence }, item.uid);
 
   const ifMatch = cleanEtag(item.etag);
   const extraHeaders: Record<string, string> = {};
@@ -106,20 +109,15 @@ export const updateItem = async <
     const response = await mkIcsPut(absolutize(item.href), ics, extraHeaders);
     const newEtag = response.headers["etag"] || "";
     const newCtag = await getCtagAfterWrite(calendarUrl, getCtag);
-    return { uid: item.uid, href: item.href, etag: newEtag, newCtag };
+    return { uid: item.uid, href: item.href, etag: newEtag, newCtag, sequence };
   } catch (error) {
     if (error instanceof CalDAVError && error.status === 412) {
-      throw new CalDAVError(
+      throw CalDAVError.wrap(
         `${itemType[0].toUpperCase() + itemType.slice(1)} with the specified uid does not match.`,
-        412,
-        { cause: error },
+        error,
       );
     }
-    throw new CalDAVError(
-      `Failed to update ${itemType}.`,
-      error instanceof CalDAVError ? error.status : undefined,
-      { cause: error },
-    );
+    throw CalDAVError.wrap(`Failed to update ${itemType}.`, error);
   }
 };
 
@@ -181,19 +179,11 @@ export const deleteItem = async (
           await send(absolutize(resolved));
           return;
         } catch (retryError) {
-          throw new CalDAVError(
-            `Failed to delete ${itemType}.`,
-            retryError instanceof CalDAVError ? retryError.status : undefined,
-            { cause: retryError },
-          );
+          throw CalDAVError.wrap(`Failed to delete ${itemType}.`, retryError);
         }
       }
     }
 
-    throw new CalDAVError(
-      `Failed to delete ${itemType}.`,
-      error instanceof CalDAVError ? error.status : undefined,
-      { cause: error },
-    );
+    throw CalDAVError.wrap(`Failed to delete ${itemType}.`, error);
   }
 };

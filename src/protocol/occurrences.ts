@@ -9,6 +9,7 @@ import {
 } from "../models";
 import { normalizeSlashEnd } from "../utils/common";
 import { ifMatchValue } from "../utils/etag";
+import { normalizeIcs } from "../utils/ics";
 import { resolvePropertyTime } from "../utils/timezone";
 import { occurrenceTime } from "./ics-builders";
 
@@ -251,7 +252,7 @@ export const deleteOccurrence = async (
   scope: OccurrenceScope = "this",
 ): Promise<OccurrenceResult> => {
   const { href, ics, etag } = await loadResource(calendarUrl, ref, deps);
-  const vcalendar = new ICAL.Component(ICAL.parse(ics));
+  const vcalendar = new ICAL.Component(ICAL.parse(normalizeIcs(ics)));
   const { master, overrides } = requireSeries(vcalendar);
 
   const wholeDay = isWholeDayComponent(master);
@@ -339,7 +340,7 @@ export const updateOccurrence = async (
   deps: OccurrenceDeps,
 ): Promise<OccurrenceResult> => {
   const { href, ics, etag } = await loadResource(calendarUrl, ref, deps);
-  const vcalendar = new ICAL.Component(ICAL.parse(ics));
+  const vcalendar = new ICAL.Component(ICAL.parse(normalizeIcs(ics)));
   const { master, overrides } = requireSeries(vcalendar);
 
   const wholeDay = isWholeDayComponent(master);

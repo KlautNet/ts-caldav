@@ -4,6 +4,37 @@ All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/). While the package is pre-`1.0`,
 minor releases may carry notable internal changes worth reviewing.
 
+## 0.4.5
+
+### Fixed
+
+- **`RRULE` `UNTIL` is written in the format RFC 5545 requires** (#29). It was
+  serialized in ISO 8601 extended form (`UNTIL=2030-12-30T10:00:00Z`), which
+  Radicale rejects with `400` on create, and which ical.js cannot read back: a
+  whole-day series came back with an `until` more than a year early, and a
+  timed series made `getEvents` throw — taking every other event in the same
+  response down with it. The rule is now built as an `ICAL.Recur`, which
+  writes `UNTIL=20301230T100000Z` / `UNTIL=20301230`. Series already stored
+  in the old form are repaired on read, so they parse and the next
+  `updateEvent` writes them back correctly.
+- **`wkst` is written, and read back as a weekday.** It was dropped on write
+  and came back as ical.js's internal number (`"2"`) on read; it is now `"MO"`
+  and so on in both directions. The old numeric form is still accepted.
+
+### Added
+
+- **`SEQUENCE` is read and incremented on update** (#30). `Event` and `Todo`
+  gain `sequence?: number`; `updateEvent` / `updateTodo` write the read value
+  plus one (or `1` when there was none) and return the value written. Servers
+  such as Open-Xchange reject an update whose `SEQUENCE` is behind the stored
+  one, which made every second update fail. `createEvent` / `createTodo` write
+  `SEQUENCE` only when given one.
+- **`CalDAVError` keeps the server's response body** (#31). `responseBody`
+  holds the body of the failed response, and `precondition` the local name of
+  the element inside a `DAV:error` body (e.g. `no-uid-conflict`). Both are
+  preserved through the higher-level errors thrown by `createEvent`,
+  `updateEvent`, `deleteEvent`, `getEvents` and their todo counterparts.
+
 ## 0.4.4
 
 ### Fixed

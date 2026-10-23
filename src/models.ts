@@ -89,6 +89,8 @@ export interface Event {
   endTzid?: string;
   alarms?: Alarm[];
   customFields?: Record<string, string | string[]>;
+  /** `SEQUENCE`; `updateEvent` writes the read value plus one. */
+  sequence?: number;
   /**
    * Set when this component overrides a single occurrence of a recurring
    * series (`RECURRENCE-ID`). It carries the *original* start of the
@@ -182,6 +184,7 @@ export interface Todo {
   alarms?: Alarm[];
   sortOrder?: number;
   customFields?: Record<string, string | string[]>;
+  sequence?: number;
 }
 
 export interface CalDAVClientCache {

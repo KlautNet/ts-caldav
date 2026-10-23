@@ -83,6 +83,7 @@ describe("updateItem", () => {
       href: item.href,
       etag: '"event-etag-2"',
       newCtag: "ctag-2",
+      sequence: 1,
     });
   });
 
@@ -111,6 +112,7 @@ describe("updateItem", () => {
       href: item.href,
       etag: '"event-etag-2"',
       newCtag: "",
+      sequence: 1,
     });
   });
 });
@@ -211,5 +213,72 @@ describe("deleteItem", () => {
     await expect(
       deleteItem(calendarUrl, {}, "event", mkClient(async () => ({})) as never),
     ).rejects.toThrow(/uid.*href/);
+  });
+});
+
+describe("error wrapping", () => {
+  test("a 412 on update keeps the server's body and precondition (#31)", async () => {
+    const put = vi.fn(async () => {
+      throw new CalDAVError("HTTP 412", 412, {
+        responseBody: "<D:error><OX:code>CAL-4121</OX:code></D:error>",
+        precondition: "code",
+      });
+    });
+
+    const error = await updateItem(
+      calendarUrl,
+      { uid: "event-1", href: `${calendarUrl}event-1.ics` },
+      build,
+      "event",
+      put,
+      async () => "",
+      (u) => u,
+    ).catch((e) => e);
+
+    expect(error).toBeInstanceOf(CalDAVError);
+    expect(error.message).toBe("Event with the specified uid does not match.");
+    expect(error.status).toBe(412);
+    expect(error.responseBody).toContain("CAL-4121");
+    expect(error.precondition).toBe("code");
+    expect(error.cause).toBeInstanceOf(CalDAVError);
+  });
+
+  test("a generic failure on create keeps the status and body", async () => {
+    const put = vi.fn(async () => {
+      throw new CalDAVError("HTTP 400", 400, { responseBody: "bad rrule" });
+    });
+
+    const error = await createItem(
+      calendarUrl,
+      data,
+      build,
+      "event",
+      put,
+      async () => "",
+    ).catch((e) => e);
+
+    expect(error.message).toBe("Failed to create event.");
+    expect(error.status).toBe(400);
+    expect(error.responseBody).toBe("bad rrule");
+  });
+
+  test("updateItem sends the item's sequence plus one to the builder", async () => {
+    const seen = vi.fn((item: { sequence?: number }) => {
+      return `SEQ:${item.sequence}`;
+    });
+    const put = vi.fn(async () => ({ status: 204, headers: {}, data: "", url: "" }));
+
+    const result = await updateItem(
+      calendarUrl,
+      { uid: "event-1", href: `${calendarUrl}event-1.ics`, sequence: 4 },
+      seen,
+      "event",
+      put,
+      async () => "",
+      (u) => u,
+    );
+
+    expect(seen.mock.calls[0][0].sequence).toBe(5);
+    expect(result.sequence).toBe(5);
   });
 });

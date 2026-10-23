@@ -1,4 +1,14 @@
 import { CalDAVError } from "./errors";
+
+/** Local name of the first child of a `DAV:error` root (RFC 4918 §16). */
+const extractPrecondition = (body: string): string | undefined => {
+  if (!body.includes("error")) return undefined;
+  const match =
+    /<(?:[\w.-]+:)?error(?:\s[^>]*)?>\s*<(?:[\w.-]+:)?([A-Za-z][\w.-]*)/.exec(
+      body,
+    );
+  return match?.[1];
+};
 import { AuthOptions } from "./models";
 
 type RequestOptions = {
@@ -146,7 +156,10 @@ class HttpClient {
     const effectiveValidate =
       validateStatus ?? ((s: number) => s >= 200 && s < 300);
     if (!effectiveValidate(response.status)) {
-      throw new CalDAVError(`HTTP ${response.status}`, response.status);
+      throw new CalDAVError(`HTTP ${response.status}`, response.status, {
+        responseBody: text,
+        precondition: extractPrecondition(text),
+      });
     }
 
     return {

@@ -1,5 +1,5 @@
 import ICAL from "ical.js";
-import { Event, Todo } from "../models";
+import { Event, RecurrenceRule, Todo } from "../models";
 import { PartialBy } from "./types";
 import { toZonedTime } from "../utils/timezone";
 
@@ -87,6 +87,28 @@ const addDateTime = (
   }
 };
 
+/** An `ICAL.Recur` makes ical.js write `UNTIL` in the RFC 5545 basic format. */
+const buildRecur = (rule: RecurrenceRule, wholeDay?: boolean): ICAL.Recur => {
+  // A numeric wkst is ical.js's own weekday number.
+  const wkst = rule.wkst
+    ? /^\d$/.test(rule.wkst)
+      ? Number(rule.wkst)
+      : ICAL.Recur.icalDayToNumericDay(rule.wkst)
+    : undefined;
+
+  // fromData rejects keys that are present but undefined.
+  return ICAL.Recur.fromData({
+    ...(rule.freq ? { freq: rule.freq } : {}),
+    ...(rule.interval ? { interval: rule.interval } : {}),
+    ...(rule.count ? { count: rule.count } : {}),
+    ...(rule.until ? { until: occurrenceTime(rule.until, wholeDay) } : {}),
+    ...(wkst !== undefined ? { wkst } : {}),
+    ...(rule.byday ? { byday: rule.byday } : {}),
+    ...(rule.bymonthday ? { bymonthday: rule.bymonthday } : {}),
+    ...(rule.bymonth ? { bymonth: rule.bymonth } : {}),
+  });
+};
+
 export const buildEventICSData = (
   event: PartialBy<Event, "uid" | "etag" | "href">,
   uid: string,
@@ -128,24 +150,13 @@ export const buildEventICSData = (
   if (event.status) vevent.addPropertyWithValue("status", event.status);
 
   if (event.recurrenceRule) {
-    const r = event.recurrenceRule;
-    const rruleProps: Record<string, string | number> = {};
-    if (r.freq) rruleProps.FREQ = r.freq;
-    if (r.interval) rruleProps.INTERVAL = r.interval;
-    if (r.count) rruleProps.COUNT = r.count;
-    if (event.wholeDay && r.until) {
-      rruleProps.UNTIL = ICAL.Time.fromDateString(
-        r.until.toISOString().split("T")[0],
-      ).toString();
-    } else if (r.until) {
-      rruleProps.UNTIL = ICAL.Time.fromJSDate(r.until, true).toString();
-    }
-
-    if (r.byday) rruleProps.BYDAY = r.byday.join(",");
-    if (r.bymonthday) rruleProps.BYMONTHDAY = r.bymonthday.join(",");
-    if (r.bymonth) rruleProps.BYMONTH = r.bymonth.join(",");
-    vevent.addPropertyWithValue("rrule", rruleProps);
+    vevent.addPropertyWithValue(
+      "rrule",
+      buildRecur(event.recurrenceRule, event.wholeDay),
+    );
   }
+  if (event.sequence !== undefined)
+    vevent.addPropertyWithValue("sequence", event.sequence);
 
   if (event.recurrenceId) {
     vevent.addPropertyWithValue(
@@ -194,6 +205,8 @@ export const buildTodoICSData = (
   if (todo.status) vtodo.addPropertyWithValue("status", todo.status);
   if (todo.sortOrder !== undefined)
     vtodo.addPropertyWithValue("X-APPLE-SORT-ORDER", todo.sortOrder);
+  if (todo.sequence !== undefined)
+    vtodo.addPropertyWithValue("sequence", todo.sequence);
 
   addCustomFields(vtodo, todo.customFields);
   addAlarms(vtodo, todo.alarms);

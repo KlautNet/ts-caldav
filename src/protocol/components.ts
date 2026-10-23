@@ -68,10 +68,9 @@ export const getComponents = async <T>(
     const xml = await report(calendarUrl, requestBody, "1");
     return await parseFn(xml);
   } catch (error) {
-    throw new CalDAVError(
+    throw CalDAVError.wrap(
       `Failed to retrieve ${component.toLowerCase()}s from the CalDAV server.`,
-      error instanceof CalDAVError ? error.status : undefined,
-      { cause: error },
+      error,
     );
   }
 };

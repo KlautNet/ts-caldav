@@ -222,6 +222,131 @@ describe("buildICSData – status", () => {
   });
 });
 
+// ── VEVENT – recurrence rule ──────────────────────────────────────────────────
+
+describe("buildICSData – recurrence rule", () => {
+  const rruleLine = () =>
+    capturedICS
+      .replace(/\r?\n[ \t]/g, "")
+      .split(/\r?\n/)
+      .find((l) => l.startsWith("RRULE:"));
+
+  test("UNTIL of a timed series is a basic-format UTC date-time (#29)", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      recurrenceRule: { freq: "WEEKLY", until: new Date("2030-12-30T10:00:00Z") },
+    });
+
+    expect(rruleLine()).toBe("RRULE:FREQ=WEEKLY;UNTIL=20301230T100000Z");
+  });
+
+  test("UNTIL of a whole-day series is a basic-format date (#29)", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      wholeDay: true,
+      start: new Date("2030-09-02T00:00:00Z"),
+      end: new Date("2030-09-02T00:00:00Z"),
+      recurrenceRule: { freq: "WEEKLY", until: new Date("2030-12-30T00:00:00Z") },
+    });
+
+    expect(rruleLine()).toBe("RRULE:FREQ=WEEKLY;UNTIL=20301230");
+  });
+
+  test("UNTIL round-trips through the parser", async () => {
+    const until = new Date("2030-12-30T10:00:00Z");
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      recurrenceRule: { freq: "WEEKLY", until },
+    });
+
+    const [parsed] = await parseEvents(wrapCalendarData(capturedICS));
+    expect(parsed.recurrenceRule?.until?.toISOString()).toBe(until.toISOString());
+  });
+
+  test("every rule part is written, including WKST", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      recurrenceRule: {
+        freq: "MONTHLY",
+        interval: 2,
+        count: 5,
+        wkst: "SU",
+        byday: ["MO", "WE"],
+        bymonthday: [1, 15],
+        bymonth: [3],
+      },
+    });
+
+    const recur = vevent().getFirstPropertyValue<ICAL.Recur>("rrule")!;
+    expect(recur.freq).toBe("MONTHLY");
+    expect(recur.interval).toBe(2);
+    expect(recur.count).toBe(5);
+    expect(recur.wkst).toBe(ICAL.Time.SUNDAY);
+    expect(recur.parts).toEqual({
+      BYDAY: ["MO", "WE"],
+      BYMONTHDAY: [1, 15],
+      BYMONTH: [3],
+    });
+  });
+
+  test("a WKST read back by an older version as a number is accepted", async () => {
+    await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      recurrenceRule: { freq: "WEEKLY", wkst: "1" },
+    });
+
+    expect(vevent().getFirstPropertyValue<ICAL.Recur>("rrule")!.wkst).toBe(
+      ICAL.Time.SUNDAY,
+    );
+  });
+});
+
+// ── VEVENT – SEQUENCE ─────────────────────────────────────────────────────────
+
+describe("buildICSData – SEQUENCE (#30)", () => {
+  const sequenceLine = () =>
+    capturedICS.split(/\r?\n/).find((l) => l.startsWith("SEQUENCE:"));
+
+  test("updateEvent writes the read SEQUENCE plus one and returns it", async () => {
+    const result = await makeClient().updateEvent(CAL, {
+      ...BASE_EVENT,
+      sequence: 3,
+    });
+
+    expect(sequenceLine()).toBe("SEQUENCE:4");
+    expect(result.sequence).toBe(4);
+  });
+
+  test("updateEvent writes SEQUENCE:1 when the event carried none", async () => {
+    await makeClient().updateEvent(CAL, { ...BASE_EVENT });
+
+    expect(sequenceLine()).toBe("SEQUENCE:1");
+  });
+
+  test("createEvent writes no SEQUENCE unless given one", async () => {
+    await makeClient().createEvent(CAL, {
+      summary: "New",
+      start: BASE_EVENT.start,
+      end: BASE_EVENT.end,
+    });
+    expect(sequenceLine()).toBeUndefined();
+
+    await makeClient().createEvent(CAL, {
+      summary: "New",
+      start: BASE_EVENT.start,
+      end: BASE_EVENT.end,
+      sequence: 0,
+    });
+    expect(sequenceLine()).toBe("SEQUENCE:0");
+  });
+
+  test("updateTodo increments SEQUENCE the same way", async () => {
+    await makeClient().updateTodo(CAL, { ...BASE_TODO, sequence: 1 });
+
+    expect(sequenceLine()).toBe("SEQUENCE:2");
+  });
+});
+
 // ── VEVENT – recurrence exceptions ────────────────────────────────────────────
 
 describe("buildICSData – recurrence exceptions", () => {
