@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2019",
-    "module": "CommonJS",
+    "module": "ESNext",
     "strict": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "lib": ["ES2022", "dom"],
     "types": ["node"],
     "declaration": true,
