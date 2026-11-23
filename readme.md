@@ -221,9 +221,16 @@ To use full timezone definitions, include your own `VTIMEZONE` in raw iCal.
 
 ### `updateEvent(calendarUrl, event)`
 
-Rewrites the event resource. `event` should come from `getEvents` /
+Writes the event back. `event` should come from `getEvents` /
 `getEventsByHref` so that it carries the `href`, `etag` and `sequence` the
-server knows.
+server knows, and the calendar data it was read from (`ics`).
+
+With `ics`, only the fields you changed are rewritten; everything else in the
+resource is kept as stored: attendee parameters (`CN`, `PARTSTAT`, ...), all
+values of multi-value properties, alarm details, `VTIMEZONE` and recurrence
+overrides. Changing one entry of `customFields` keeps the parameters of the
+values that are still listed. Without `ics` (an event built by hand), the
+resource is built from the event alone.
 
 Every update writes `SEQUENCE` as the event's `sequence` plus one (`1` when the
 event has none). Some servers, Open-Xchange among them, reject an update whose
@@ -432,8 +439,8 @@ const overrides = series.filter((e) => e.recurrenceId);
 
 Use [`updateOccurrence`](#updateoccurrencecalendarurl-event-occurrencestart-changes)
 and [`deleteOccurrence`](#deleteoccurrencecalendarurl-event-occurrencestart-options)
-to edit a series occurrence by occurrence; `updateEvent` rewrites the whole
-resource and drops any override in it.
+to edit a series occurrence by occurrence. `updateEvent` on an override changes
+only that override and leaves the rest of the series untouched.
 
 ## Error Handling
 

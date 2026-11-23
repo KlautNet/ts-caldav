@@ -4,6 +4,28 @@ All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/). While the package is pre-`1.0`,
 minor releases may carry notable internal changes worth reviewing.
 
+## 0.4.6
+
+### Fixed
+
+- **`updateEvent` / `updateTodo` no longer drop what the model does not cover**
+  (#32). Updates rebuilt the resource from the `Event` / `Todo` alone, so a
+  title-only change removed attendee and organizer parameters (`CN`,
+  `PARTSTAT`, `ROLE`, `RSVP`), kept only the first value of `CATEGORIES` or
+  `RESOURCES`, corrupted `GEO` and binary `ATTACH` values, dropped alarm
+  parameters such as `RELATED=END`, and deleted `VTIMEZONE` and recurrence
+  overrides. Updates now amend the stored resource: only the properties of
+  changed fields are rewritten, and a changed `customFields` entry keeps the
+  parameters of the values that are still listed.
+- **`DURATION` is no longer returned in `customFields`.** It was written back
+  next to `DTEND`, which RFC 5545 forbids; `end` already represents it.
+
+### Added
+
+- `Event.ics` / `Todo.ics`: the calendar data the item was read from. Updates
+  use it to preserve the resource; an item without it is built from the model
+  as before.
+
 ## 0.4.5
 
 ### Fixed

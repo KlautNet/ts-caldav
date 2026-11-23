@@ -92,6 +92,11 @@ export interface Event {
   /** `SEQUENCE`; `updateEvent` writes the read value plus one. */
   sequence?: number;
   /**
+   * The calendar resource this event was read from. `updateEvent` amends it,
+   * so properties and parameters the model does not cover are kept.
+   */
+  ics?: string;
+  /**
    * Set when this component overrides a single occurrence of a recurring
    * series (`RECURRENCE-ID`). It carries the *original* start of the
    * overridden occurrence, which stays fixed even when the override moves the
@@ -185,6 +190,8 @@ export interface Todo {
   sortOrder?: number;
   customFields?: Record<string, string | string[]>;
   sequence?: number;
+  /** The calendar resource this todo was read from; see `Event.ics`. */
+  ics?: string;
 }
 
 export interface CalDAVClientCache {

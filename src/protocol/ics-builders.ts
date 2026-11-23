@@ -109,15 +109,17 @@ const buildRecur = (rule: RecurrenceRule, wholeDay?: boolean): ICAL.Recur => {
   });
 };
 
-export const buildEventICSData = (
-  event: PartialBy<Event, "uid" | "etag" | "href">,
-  uid: string,
-  prodId: string,
-): string => {
+const newCalendar = (prodId: string): ICAL.Component => {
   const vcalendar = new ICAL.Component(["vcalendar", [], []]);
   vcalendar.addPropertyWithValue("version", "2.0");
   vcalendar.addPropertyWithValue("prodid", prodId);
+  return vcalendar;
+};
 
+export const buildEventComponent = (
+  event: PartialBy<Event, "uid" | "etag" | "href">,
+  uid: string,
+): ICAL.Component => {
   const vevent = new ICAL.Component("vevent");
   const e = new ICAL.Event(vevent);
   e.uid = uid;
@@ -170,19 +172,23 @@ export const buildEventICSData = (
   addCustomFields(vevent, event.customFields);
   addAlarms(vevent, event.alarms);
 
-  vcalendar.addSubcomponent(vevent);
-  return vcalendar.toString();
+  return vevent;
 };
 
-export const buildTodoICSData = (
-  todo: PartialBy<Todo, "uid" | "etag" | "href">,
+export const buildEventICSData = (
+  event: PartialBy<Event, "uid" | "etag" | "href">,
   uid: string,
   prodId: string,
 ): string => {
-  const vcalendar = new ICAL.Component(["vcalendar", [], []]);
-  vcalendar.addPropertyWithValue("version", "2.0");
-  vcalendar.addPropertyWithValue("prodid", prodId);
+  const vcalendar = newCalendar(prodId);
+  vcalendar.addSubcomponent(buildEventComponent(event, uid));
+  return vcalendar.toString();
+};
 
+export const buildTodoComponent = (
+  todo: PartialBy<Todo, "uid" | "etag" | "href">,
+  uid: string,
+): ICAL.Component => {
   const vtodo = new ICAL.Component("vtodo");
   vtodo.addPropertyWithValue("uid", uid);
   vtodo.addPropertyWithValue(
@@ -211,7 +217,16 @@ export const buildTodoICSData = (
   addCustomFields(vtodo, todo.customFields);
   addAlarms(vtodo, todo.alarms);
 
-  vcalendar.addSubcomponent(vtodo);
+  return vtodo;
+};
+
+export const buildTodoICSData = (
+  todo: PartialBy<Todo, "uid" | "etag" | "href">,
+  uid: string,
+  prodId: string,
+): string => {
+  const vcalendar = newCalendar(prodId);
+  vcalendar.addSubcomponent(buildTodoComponent(todo, uid));
   return vcalendar.toString();
 };
 

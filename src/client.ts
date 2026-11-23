@@ -18,6 +18,7 @@ import { parseEvents, parseTodos } from "./utils/parser";
 import HttpClient from "./http-client";
 import { parseDavXml } from "./utils/dav";
 import { buildEventICSData, buildTodoICSData } from "./protocol/ics-builders";
+import { amendEventICSData, amendTodoICSData } from "./protocol/ics-amend";
 import { PartialBy } from "./protocol/types";
 import { diffRefs } from "./protocol/sync";
 import { discoverCalendarHome } from "./protocol/discovery";
@@ -222,7 +223,7 @@ export class CalDAVClient {
     return updateProtocolItem<Event>(
       calendarUrl,
       event,
-      (data, uid) => buildEventICSData(data, uid, this.prodId),
+      (data, uid) => amendEventICSData(data, uid, this.prodId),
       "event",
       this.mkIcsPut.bind(this),
       this.getCtag.bind(this),
@@ -385,7 +386,7 @@ export class CalDAVClient {
     return updateProtocolItem<Todo>(
       calendarUrl,
       todo,
-      (data, uid) => buildTodoICSData(data, uid, this.prodId),
+      (data, uid) => amendTodoICSData(data, uid, this.prodId),
       "todo",
       this.mkIcsPut.bind(this),
       this.getCtag.bind(this),
